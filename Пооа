@@ -1,0 +1,58 @@
+import datetime
+
+class Quest:
+    def __init__(self, name, description, goal):
+        self.name = name
+        self.description = description
+        self.goal = goal
+        self.start_time = None
+        self.end_time = None
+    
+    def accept_quest(self):
+        # Проверяем, не выполнен ли уже квест
+        if self.end_time is not None:
+            return 'С этим испытанием вы уже справились.'
+        
+        # Записываем текущее время начала
+        self.start_time = datetime.datetime.now()
+        return f'Начало {self.name} положено.'
+    
+    def pass_quest(self):
+        # Проверяем, начат ли квест
+        if self.start_time is None:
+            return 'Нельзя завершить то, что не имеет начала!'
+        
+        # Записываем текущее время завершения
+        self.end_time = datetime.datetime.now()
+        
+        # Вычисляем разницу во времени
+        completion_time = self.end_time - self.start_time
+        
+        return f'Квест {self.name} окончен. Время выполнения квеста: {completion_time}'
+    
+    def __str__(self):
+        base_str = f'Цель квеста {self.name} — {self.goal}.'
+        
+        # Проверяем статус квеста
+        if self.end_time is not None:
+            return f'{base_str} Квест завершён.'
+        elif self.start_time is not None:
+            return f'{base_str} Квест выполняется.'
+        else:
+            return base_str
+
+
+# Создаем переменные для квеста
+quest_name = "Победитель драконов"
+quest_description = "Очистить земли от драконов"
+quest_goal = "Победить 5 драконов"
+
+# Создаем экземпляр класса Quest
+new_quest = Quest(quest_name, quest_description, quest_goal)
+
+# Проверяем работу методов
+print(new_quest)  # Цель квеста Победитель драконов — Победить 5 драконов.
+print(new_quest.accept_quest())  # Начало Победитель драконов положено.
+print(new_quest)  # Цель квеста Победитель драконов — Победить 5 драконов. Квест выполняется.
+print(new_quest.pass_quest())  # Квест Победитель драконов окончен. Время выполнения квеста: 0:00:00.xxxxxx
+print(new_quest)  # Цель квеста Победитель драконов — Победить 5 драконов. Квест завершён.
