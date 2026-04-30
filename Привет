@@ -1,0 +1,60 @@
+# Листинг 2.13. Демонстрация метода соглашения имен (главный модуль приложения, модуль Soglashenie_Imen.py)
+from kivy.app import App
+
+class Basic_Class(App):
+    pass
+
+My_App = Basic_Class()
+My_App.run()
+
+# Листинг 2.14. Текстовый файл, модуль basic_class.kv
+Label:
+    text: 'Метка из файла basic_class.kv'
+    font_size: '16pt'
+
+# Листинг 2.15. Демонстрация метода Builder (загрузка кода на KV из текстового файла) модуль Metod_Builder.py
+from kivy.app import App
+from kivy.lang import Builder
+
+kv_file = Builder.load_file("./basic_class.kv")
+
+class Basic_Class(App):
+    def build(self):
+        return kv_file
+
+# Листинг 2.16. Демонстрация метода Builder Metod_Builder2.py
+from kivy.app import App
+from kivy.lang import Builder
+
+kv_file = Builder.load_file("./KV_file/main_screen.kv")
+
+class Basic_Class(App):
+    def build(self):
+        return kv_file
+
+My_App = Basic_Class()
+My_App.run()
+
+# Листинг 2.17. Текстовый файл (модуль main_screen.kv)
+Label:
+    text: 'Метка из файла ./KV_file/main_screen.kv'
+    font_size: '16pt'
+
+# Листинг 2.18. Демонстрация метода Builder (загрузка кода на KV из текстовой строки) модуль Metod_Builder1.py
+from kivy.app import App
+from kivy.lang import Builder
+
+my_str = """
+Label:
+    text: 'Загрузка метки из текстовой строки'
+    font_size: '16pt'
+"""
+
+kv_str = Builder.load_string(my_str)
+
+class Basic_Class(App):
+    def build(self):
+        return kv_str
+
+My_App = Basic_Class()
+My_App.run()
