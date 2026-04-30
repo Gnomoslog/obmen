@@ -58,3 +58,83 @@ class Basic_Class(App):
 
 My_App = Basic_Class()
 My_App.run()
+
+
+# Листинг 2.19. Пример использования виджета Label (модуль K_Label_1.py)
+from kivy.app import App
+from kivy.uix.label import Label
+
+class MainApp(App):
+    def build(self):
+        L = Label(text='Это текст', font_size=50)
+        return L
+
+MainApp().run()
+
+# Листинг 2.20. Пример использования виджета Label (модуль K_Label_2.py)
+from kivy.app import App
+from kivy.lang import Builder
+
+KV = """
+Label:
+    text: 'Это текст'
+    font_size: 50
+"""
+
+class MainApp(App):
+    def build(self):
+        return Builder.load_string(KV)
+
+MainApp().run()
+
+# Листинг 2.21. Пример использования виджета Button (модуль K_Button_1.py)
+from kivy.app import App
+from kivy.uix.button import Button
+
+class MainApp(App):
+    def build(self):
+        btn = Button(text='Это кнопка', font_size=50)
+        return btn
+
+MainApp().run()
+
+# Листинг 2.22. Пример использования виджета Button (модуль K_Button_2.py)
+from kivy.app import App
+from kivy.lang import Builder
+
+KV = """
+Button:
+    text: 'Это кнопка'
+    font_size: 50
+"""
+
+class MainApp(App):
+    def build(self):
+        return Builder.load_string(KV)
+
+MainApp().run()
+
+# Листинг 2.23. Пример использования виджета CheckBox (модуль K_CheckBox_1.py)
+from kivy.app import App
+from kivy.uix.checkbox import CheckBox
+
+class MainApp(App):
+    def build(self):
+        checkbox = CheckBox()
+        return checkbox
+
+MainApp().run()
+
+# Листинг 2.24. Пример использования виджета CheckBox (модуль K_CheckBox_2.py)
+from kivy.app import App
+from kivy.lang import Builder
+
+KV = """
+CheckBox:
+"""
+
+class MainApp(App):
+    def build(self):
+        return Builder.load_string(KV)
+
+MainApp().run()
