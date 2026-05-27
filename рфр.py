@@ -1,66 +1,65 @@
-# задание 1
-# sau = int(input())
-#
-# berries = []
-# for i in range(sau):
-#     a = int(input())
-#     berries.append(a)
-#
-# if sau == 1:
-#     print(berries[0])
-# elif sau == 2:
-#     print(berries[0] + berries[1])
-# else:
-#     apl = 0
-#     for i in range(sau):
-#         s = berries[le] + berries[i] + berries[e]
-#         if le < 0:
-#             le = sau - 1
-#
-#         e = i + 1
-#         if e >= sau:
-#             e = 0
-#
-#         if s > apl:
-#             apl = s
-#
-# print(apl)
-#
-from itertools import count
+# import math
+# 1
+# n = int(input("ведите n"))
+# sum = 0
+# for i in range(2,n+1, 2):
+#     sum += i
+# print(sum)
 
-# задание 2
+# 2
 
+# n = int(input("ведите n"))
+# result = math.factorial(n)
+# print(result)
+
+#3
+
+# n = int(input("ведите n "))
+# count = 0
+# for i in range(1, n + 1):
+#     if n % i == 0:
+#         count += 1
+# print(count)
+
+# 4
+#
 # n = int(input())
-# c = [int(input()) for i in range(a)]
-# m = int(input())
-# g = [int(input()) for i in range(b)]
-# asd = [x for x in c if x not in g]
-### asd = set(c) - set(g) - не попорядку типа
-# print(asd)
-
-# задание 3
-# c = int(input())
-# a = list(map(int, input().split()))
-# cot = 0
-# for i in range(1, c - 1):
-#     if a[i] > a[i - 1] and a[i] > a[i + 1]:
-#         cot += 1
-# print(cot)
-# задание 4
-# n = int(input("Введи размер массива:"))
-# I = []
-# if n <= 5:
-#     print("")
+# a = 0
+# b = 1
+# while b <= n:
+#     if n % b == 0:
+#         a += 1
+#     b += 1
+# if a == 2:
+#     print("да")
 # else:
-#     for i in range(n):
-#         v = int(input())
-#         I.append(v)
-# print(I)
-#
-# co = 0
-# for h in range(n - 1):
-#     if I[h] == I[h + 1]:
-#         co += 1
-#
-# print(co)
-#
+#     print("нет")
+
+# 5
+# a = input()
+# b = input()
+# v = max(a, b)
+# print(v)
+
+# 6
+
+# list = []
+# n = int(input("ведите n "))
+# while n != 0 :
+#     list.append(n)
+#     a = int(input("ведите n "))
+# pustin = [i for i in list if i > 0]
+# co = pustin.count(min(pustin))
+# if co == 1:
+#     print(f"мин из полож  вед  числ -  {min(pustin)}")
+# else:
+#     print(f"мин из полож  вед  числ -  {min(pustin)}, их кол -{co}")
+
+# 7
+# list = []
+# a = int(input())
+# while a != 0:
+#     list.append(a)
+#     a = int(input())
+# ar = sum(list) / len(list)
+# print(ar)
