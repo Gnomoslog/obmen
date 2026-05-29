@@ -1,0 +1,95 @@
+Вот решения для всех трёх заданий. Предполагается, что используется MySQL (для команд вывода индексов и временных таблиц), но я дам и варианты для PostgreSQL / SQL Server, где это необходимо.
+
+---
+
+Задание 1. Изменение таблиц
+
+```sql
+-- 1. Добавить столбец Status со значением по умолчанию 'Pending'
+ALTER TABLE Orders
+ADD COLUMN Status VARCHAR(20) DEFAULT 'Pending';
+
+-- 2. Изменить тип данных TotalAmount на DECIMAL(12,2)
+ALTER TABLE Orders
+MODIFY COLUMN TotalAmount DECIMAL(12, 2);
+
+-- 3. Переименовать столбец CustomerID в ClientID
+ALTER TABLE Orders
+RENAME COLUMN CustomerID TO ClientID;      -- для MySQL / PostgreSQL
+-- В SQL Server: EXEC sp_rename 'Orders.CustomerID', 'ClientID', 'COLUMN';
+
+-- 4. Добавить ограничение NOT NULL для OrderDate
+ALTER TABLE Orders
+MODIFY COLUMN OrderDate DATE NOT NULL;     -- для MySQL
+-- В PostgreSQL: ALTER TABLE Orders ALTER COLUMN OrderDate SET NOT NULL;
+
+-- 5. Удалить столбец Status
+ALTER TABLE Orders
+DROP COLUMN Status;
+```
+
+---
+
+Задание 2. Работа с индексами
+
+```sql
+-- 1. Простой индекс по дате
+CREATE INDEX idx_order_date ON Orders(OrderDate);
+
+-- 2. Составной индекс по ClientID и OrderDate
+CREATE INDEX idx_client_order ON Orders(ClientID, OrderDate);
+
+-- 3. Уникальный индекс для OrderID (если не первичный ключ)
+-- Сначала проверим, есть ли уже PRIMARY KEY. Если нет:
+CREATE UNIQUE INDEX idx_unique_orderid ON Orders(OrderID);
+
+-- 4. Вывести список всех индексов для таблицы Orders
+
+-- MySQL
+SHOW INDEX FROM Orders;
+
+-- PostgreSQL
+SELECT indexname, indexdef
+FROM pg_indexes
+WHERE tablename = 'orders';
+
+-- SQL Server
+SELECT name, type_desc
+FROM sys.indexes
+WHERE object_id = OBJECT_ID('Orders');
+
+-- 5. Удалить индекс idx_order_date
+DROP INDEX idx_order_date ON Orders;   -- для MySQL
+-- В PostgreSQL / SQL Server: DROP INDEX idx_order_date;
+```
+
+---
+
+Задание 3. Удаление таблиц
+
+```sql
+-- 1. Создать временную таблицу TempOrders с той же структурой
+-- MySQL / PostgreSQL
+CREATE TEMPORARY TABLE TempOrders LIKE Orders;
+
+-- 2. Удалить временную таблицу
+DROP TEMPORARY TABLE TempOrders;   -- в MySQL обязательно TEMPORARY
+-- В PostgreSQL / SQL Server: DROP TABLE TempOrders;
+
+-- 3. Полностью удалить таблицу Orders
+-- Сначала очистить данные (если нужно убедиться, что она пуста)
+TRUNCATE TABLE Orders;
+
+-- Затем удалить саму таблицу
+DROP TABLE Orders;
+```
+
+---
+
+Примечания
+
+· TRUNCATE очищает таблицу, но не удаляет её структуру.
+· Временные таблицы существуют только в рамках сессии.
+· Если OrderID уже является первичным ключом, то уникальный индекс создавать не требуется (он уже есть автоматически).
+
+Если нужно, могу объяснить, почему индексы ускоряют поиск или как работают составные индексы.
