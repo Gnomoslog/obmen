@@ -1,17 +1,23 @@
 -- ========================================
--- 1. СОЗДАНИЕ ТАБЛИЦ (если их ещё нет)
+-- ТАБЛИЦА 1 (fan)
 -- ========================================
-
--- Таблица продавцов
-CREATE TABLE Salespeople (
+CREATE TABLE fan (
     snum INTEGER PRIMARY KEY,
     sname VARCHAR(20),
     city VARCHAR(20),
     comm DECIMAL(3,2)
 );
 
--- Таблица заказчиков
-CREATE TABLE Customers (
+INSERT INTO fan (snum, sname, city, comm) VALUES
+(1001, 'Peel',    'London',   0.12),
+(1002, 'Serres',  'Rome',     0.13),
+(1004, 'Motika',  'San Jose', 0.11);
+
+
+-- ========================================
+-- ТАБЛИЦА 2 (ran)
+-- ========================================
+CREATE TABLE ran (
     cnum INTEGER PRIMARY KEY,
     cname VARCHAR(20),
     city VARCHAR(20),
@@ -19,8 +25,16 @@ CREATE TABLE Customers (
     snum INTEGER
 );
 
--- Таблица заказов
-CREATE TABLE Orders (
+INSERT INTO ran (cnum, cname, city, rating, snum) VALUES
+(2001, 'Hoffman',  'London',   100, 1001),
+(2002, 'Giovanni', 'San Jose', 200, 1002),
+(2003, 'Liu',      'San Jose', 300, 1004);
+
+
+-- ========================================
+-- ТАБЛИЦА 3 (gan)
+-- ========================================
+CREATE TABLE gan (
     onum INTEGER PRIMARY KEY,
     amt DECIMAL(7,2),
     odate DATE,
@@ -28,34 +42,21 @@ CREATE TABLE Orders (
     snum INTEGER
 );
 
--- ========================================
--- 2. ЗАПОЛНЕНИЕ ТАБЛИЦ (по 3 строки в каждую)
--- ========================================
-
-INSERT INTO Salespeople (snum, sname, city, comm) VALUES
-(1001, 'Peel',    'London',   0.12),
-(1002, 'Serres',  'Rome',     0.13),
-(1004, 'Motika',  'San Jose', 0.11);
-
-INSERT INTO Customers (cnum, cname, city, rating, snum) VALUES
-(2001, 'Hoffman',  'London',   100, 1001),
-(2002, 'Giovanni', 'San Jose', 200, 1002),
-(2003, 'Liu',      'San Jose', 300, 1004);
-
-INSERT INTO Orders (onum, amt, odate, cnum, snum) VALUES
+INSERT INTO gan (onum, amt, odate, cnum, snum) VALUES
 (3001, 18.69,  '2024-06-01', 2001, 1001),
 (3002, 767.19, '2024-06-01', 2002, 1002),
 (3003, 1900.10, '2024-06-02', 2003, 1004);
 
+
 -- ========================================
--- 3. ВЫПОЛНЕНИЕ ЗАДАНИЙ
+-- А ТЕПЕРЬ ВАШИ ЗАДАНИЯ (с новыми именами таблиц)
 -- ========================================
 
--- Задание 1: city, sname, snum, comm
-SELECT city, sname, snum, comm FROM Salespeople;
+-- Задание 1
+SELECT city, sname, snum, comm FROM fan;
 
--- Задание 2: rating и cname заказчиков в San Jose
-SELECT rating, cname FROM Customers WHERE city = 'San Jose';
+-- Задание 2
+SELECT rating, cname FROM ran WHERE city = 'San Jose';
 
--- Задание 3: уникальные snum продавцов из таблицы заказов
-SELECT DISTINCT snum FROM Orders;
+-- Задание 3
+SELECT DISTINCT snum FROM gan;
