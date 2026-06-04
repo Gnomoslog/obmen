@@ -1,0 +1,250 @@
+import sqlite3
+import datetime
+import tkinter as tk
+from tkinter import ttk, messagebox
+
+# ---------- БИЗНЕС-ЛОГИКА (общая для консоли и GUI) ----------
+class CoffeeShopDB:
+    def __init__(self, db_name="coffee.db"):
+        self.conn = sqlite3.connect(db_name)
+        self.cursor = self.conn.cursor()
+        self._init_db()
+
+    def _init_db(self):
+        self.cursor.execute('''CREATE TABLE IF NOT EXISTS menu (
+                                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                                name TEXT NOT NULL UNIQUE,
+                                price INTEGER NOT NULL,
+                                category TEXT)''')
+        self.cursor.execute('''CREATE TABLE IF NOT EXISTS orders (
+                                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                                created_at TEXT NOT NULL,
+                                total_sum INTEGER NOT NULL,
+                                status TEXT NOT NULL)''')
+        self.cursor.execute('''CREATE TABLE IF NOT EXISTS order_items (
+                                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                                order_id INTEGER NOT NULL,
+                                menu_id INTEGER NOT NULL,
+                                quantity INTEGER NOT NULL,
+                                FOREIGN KEY(order_id) REFERENCES orders(id),
+                                FOREIGN KEY(menu_id) REFERENCES menu(id))''')
+        self.conn.commit()
+        # Добавим тестовые позиции, если меню пусто
+        self.cursor.execute("SELECT COUNT(*) FROM menu")
+        if self.cursor.fetchone()[0] == 0:
+            sample = [("Капучино", 150, "кофе"), ("Латте", 180, "кофе"),
+                      ("Круассан", 120, "еда"), ("Чай чёрный", 90, "чай")]
+            self.cursor.executemany("INSERT INTO menu (name, price, category) VALUES (?,?,?)", sample)
+            self.conn.commit()
+
+    def get_menu(self):
+        self.cursor.execute("SELECT id, name, price FROM menu")
+        return self.cursor.fetchall()
+
+    def add_order(self, items):  # items = [(menu_id, quantity), ...]
+        total = 0
+        for mid, qty in items:
+            self.cursor.execute("SELECT price FROM menu WHERE id=?", (mid,))
+            price = self.cursor.fetchone()[0]
+            total += price * qty
+        now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        self.cursor.execute("INSERT INTO orders (created_at, total_sum, status) VALUES (?,?,?)",
+                            (now, total, "closed"))
+        order_id = self.cursor.lastrowid
+        for mid, qty in items:
+            self.cursor.execute("INSERT INTO order_items (order_id, menu_id, quantity) VALUES (?,?,?)",
+                                (order_id, mid, qty))
+        self.conn.commit()
+        return order_id, total
+
+    def get_daily_report(self):
+        today = datetime.datetime.now().strftime("%Y-%m-%d")
+        self.cursor.execute('''SELECT COUNT(*), SUM(total_sum) FROM orders 
+                               WHERE created_at LIKE ? AND status='closed' ''', (today + '%',))
+        count, total = self.cursor.fetchone()
+        total = total if total else 0
+        self.cursor.execute('''SELECT m.name, SUM(oi.quantity) as qty FROM order_items oi
+                               JOIN orders o ON oi.order_id = o.id
+                               JOIN menu m ON oi.menu_id = m.id
+                               WHERE o.created_at LIKE ? GROUP BY m.name ORDER BY qty DESC LIMIT 3''',
+                            (today + '%',))
+        top = self.cursor.fetchall()
+        return {"count": count, "total_sum": total, "top_items": top}
+
+    def close(self):
+        self.conn.close()
+
+# ---------- КОНСОЛЬНАЯ ВЕРСИЯ ----------
+def console_mode(db):
+    current_order = []
+    while True:
+        print("\n=== МИНИ-ERP КОФЕЙНЯ (КОНСОЛЬ) ===")
+        print("1. Показать меню")
+        print("2. Добавить позицию в текущий заказ")
+        print("3. Завершить заказ и оплатить")
+        print("4. Отчёт за сегодня")
+        print("5. Очистить текущий заказ")
+        print("0. Выход")
+        choice = input("Выберите действие: ")
+        if choice == "1":
+            items = db.get_menu()
+            print("\n--- МЕНЮ ---")
+            for id_, name, price in items:
+                print(f"{id_}. {name} - {price} руб.")
+        elif choice == "2":
+            items = db.get_menu()
+            print("Доступные позиции:")
+            for id_, name, price in items:
+                print(f"{id_}. {name}")
+            try:
+                mid = int(input("ID товара: "))
+                qty = int(input("Количество: "))
+                current_order.append((mid, qty))
+                print(f"Добавлено. В заказе сейчас {len(current_order)} позиций.")
+            except:
+                print("Ошибка ввода")
+        elif choice == "3":
+            if not current_order:
+                print("Заказ пуст.")
+                continue
+            order_id, total = db.add_order(current_order)
+            print(f"Заказ №{order_id} принят. Сумма: {total} руб.")
+            current_order = []
+        elif choice == "4":
+            rep = db.get_daily_report()
+            print(f"\n--- ОТЧЁТ ЗА {datetime.datetime.now().strftime('%Y-%m-%d')} ---")
+            print(f"Заказов: {rep['count']}")
+            print(f"Выручка: {rep['total_sum']} руб.")
+            print("Популярное:")
+            for name, qty in rep['top_items']:
+                print(f"  {name}: {qty} шт.")
+        elif choice == "5":
+            current_order = []
+            print("Заказ очищен.")
+        elif choice == "0":
+            break
+        else:
+            print("Неверная команда")
+
+# ---------- ГРАФИЧЕСКАЯ ВЕРСИЯ (Tkinter) ----------
+class CoffeeGUI:
+    def __init__(self, db):
+        self.db = db
+        self.current_order = []  # [(menu_id, name, price, quantity)]
+        self.window = tk.Tk()
+        self.window.title("ERP Кофейня — Бариста")
+        self.window.geometry("700x500")
+
+        # Левая часть: меню
+        frame_menu = tk.LabelFrame(self.window, text="Меню", padx=10, pady=10)
+        frame_menu.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=10, pady=10)
+
+        self.tree_menu = ttk.Treeview(frame_menu, columns=("ID", "Цена"), show="headings")
+        self.tree_menu.heading("ID", text="ID")
+        self.tree_menu.heading("Цена", text="Цена (руб)")
+        self.tree_menu.column("ID", width=40)
+        self.tree_menu.column("Цена", width=80)
+        self.tree_menu.pack(fill=tk.BOTH, expand=True)
+
+        # Кнопка добавить
+        btn_add = tk.Button(frame_menu, text="Добавить в заказ >>>", command=self.add_to_order)
+        btn_add.pack(pady=5)
+
+        # Правая часть: текущий заказ
+        frame_order = tk.LabelFrame(self.window, text="Текущий заказ", padx=10, pady=10)
+        frame_order.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=10, pady=10)
+
+        self.list_order = tk.Listbox(frame_order, height=15)
+        self.list_order.pack(fill=tk.BOTH, expand=True)
+
+        self.label_total = tk.Label(frame_order, text="Итого: 0 руб.", font=("Arial", 12, "bold"))
+        self.label_total.pack(pady=5)
+
+        btn_pay = tk.Button(frame_order, text="ОПЛАТИТЬ (завершить заказ)", bg="lightgreen", command=self.pay_order)
+        btn_pay.pack(pady=5)
+
+        btn_clear = tk.Button(frame_order, text="Очистить заказ", command=self.clear_order)
+        btn_clear.pack(pady=2)
+
+        # Кнопка отчёта внизу
+        btn_report = tk.Button(self.window, text="Показать отчёт за сегодня", command=self.show_report)
+        btn_report.pack(side=tk.BOTTOM, pady=10)
+
+        self.refresh_menu()
+        self.window.mainloop()
+
+    def refresh_menu(self):
+        for row in self.tree_menu.get_children():
+            self.tree_menu.delete(row)
+        for mid, name, price in self.db.get_menu():
+            self.tree_menu.insert("", tk.END, values=(name, price), tags=(mid,))
+        # неудобно хранить id, сохраним в словарь
+        self.menu_map = {name: (mid, price) for mid, name, price in self.db.get_menu()}
+
+    def add_to_order(self):
+        selected = self.tree_menu.selection()
+        if not selected:
+            messagebox.showwarning("Внимание", "Выберите товар из меню")
+            return
+        item = selected[0]
+        values = self.tree_menu.item(item, "values")
+        name = values[0]
+        price = int(values[1])
+        mid = None
+        for k, v in self.menu_map.items():
+            if k == name:
+                mid = v[0]
+                break
+        if mid is None:
+            return
+        # диалог количества
+        qty = tk.simpledialog.askinteger("Количество", f"Сколько {name} ?", minvalue=1, maxvalue=99)
+        if qty:
+            self.current_order.append((mid, name, price, qty))
+            self.update_order_display()
+
+    def update_order_display(self):
+        self.list_order.delete(0, tk.END)
+        total = 0
+        for _, name, price, qty in self.current_order:
+            self.list_order.insert(tk.END, f"{name} x{qty} = {price*qty} руб.")
+            total += price * qty
+        self.label_total.config(text=f"Итого: {total} руб.")
+
+    def clear_order(self):
+        self.current_order = []
+        self.update_order_display()
+
+    def pay_order(self):
+        if not self.current_order:
+            messagebox.showinfo("Нет заказа", "Сначала добавьте товары")
+            return
+        items_for_db = [(mid, qty) for (mid, _, _, qty) in self.current_order]
+        order_id, total = self.db.add_order(items_for_db)
+        messagebox.showinfo("Оплачено", f"Заказ №{order_id} на сумму {total} руб. принят.")
+        self.clear_order()
+
+    def show_report(self):
+        rep = self.db.get_daily_report()
+        top_text = "\n".join([f"{name}: {qty} шт." for name, qty in rep['top_items']]) or "Нет продаж"
+        msg = f"Заказов: {rep['count']}\nВыручка: {rep['total_sum']} руб.\n\nПопулярное:\n{top_text}"
+        messagebox.showinfo("Отчёт за сегодня", msg)
+
+# ---------- ЗАПУСК С ВЫБОРОМ РЕЖИМА ----------
+if __name__ == "__main__":
+    db = CoffeeShopDB()
+    print("Запуск мини-ERP для кофейни")
+    print("Выберите режим:")
+    print("1 — Консоль")
+    print("2 — Графический интерфейс (Tkinter)")
+    mode = input("Ваш выбор (1/2): ").strip()
+    if mode == "1":
+        console_mode(db)
+    else:
+        # можно даже если не установлен tk — но обычно он есть
+        try:
+            CoffeeGUI(db)
+        except:
+            print("Ошибка графического режима. Запускаем консоль.")
+            console_mode(db)
+    db.close()
