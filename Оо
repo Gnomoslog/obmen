@@ -1,0 +1,508 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+import sqlite3
+import csv
+from datetime import datetime
+from contextlib import contextmanager
+
+DB_NAME = "library.db"
+
+# ==================== РАБОТА С БАЗОЙ ДАННЫХ ====================
+
+@contextmanager
+def get_connection():
+    conn = sqlite3.connect(DB_NAME)
+    conn.row_factory = sqlite3.Row
+    try:
+        yield conn
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+def init_db():
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS books (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                author TEXT NOT NULL,
+                year INTEGER,
+                is_available INTEGER DEFAULT 1
+            )
+        ''')
+        
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS readers (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                email TEXT UNIQUE NOT NULL
+            )
+        ''')
+        
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS circulation (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                book_id INTEGER NOT NULL,
+                reader_id INTEGER NOT NULL,
+                issue_date TEXT NOT NULL,
+                return_date TEXT,
+                FOREIGN KEY (book_id) REFERENCES books(id),
+                FOREIGN KEY (reader_id) REFERENCES readers(id)
+            )
+        ''')
+
+# ==================== МОДУЛЬ 1: УПРАВЛЕНИЕ КНИГАМИ ====================
+
+def add_book():
+    print("\n--- ДОБАВЛЕНИЕ КНИГИ ---")
+    title = input("Название: ").strip()
+    author = input("Автор: ").strip()
+    year = input("Год издания: ").strip()
+    
+    if not title or not author:
+        print("Ошибка: Название и автор обязательны!")
+        return
+    
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("INSERT INTO books (title, author, year) VALUES (?, ?, ?)",
+                       (title, author, year if year else None))
+        print(f"✓ Книга \"{title}\" добавлена!")
+
+def list_books():
+    print("\n--- СПИСОК КНИГ ---")
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM books ORDER BY id")
+        books = cursor.fetchall()
+        
+        if not books:
+            print("Нет книг в библиотеке.")
+            return
+        
+        print(f"{'ID':<4} {'Название':<30} {'Автор':<20} {'Год':<6} {'Статус':<10}")
+        print("-" * 75)
+        for book in books:
+            status = "✓ Доступна" if book["is_available"] else "✗ Выдана"
+            print(f"{book['id']:<4} {book['title']:<30} {book['author']:<20} "
+                  f"{book['year'] or '-':<6} {status:<10}")
+
+def search_books():
+    print("\n--- ПОИСК КНИГ ---")
+    query = input("Введите название или автора: ").strip()
+    
+    if not query:
+        print("Ошибка: Введите текст для поиска!")
+        return
+    
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""SELECT * FROM books 
+                         WHERE title LIKE ? OR author LIKE ?
+                         ORDER BY id""", 
+                       (f"%{query}%", f"%{query}%"))
+        books = cursor.fetchall()
+        
+        if not books:
+            print("Книги не найдены.")
+            return
+        
+        print(f"\nНайдено книг: {len(books)}")
+        print(f"{'ID':<4} {'Название':<30} {'Автор':<20} {'Год':<6} {'Статус':<10}")
+        print("-" * 75)
+        for book in books:
+            status = "✓ Доступна" if book["is_available"] else "✗ Выдана"
+            print(f"{book['id']:<4} {book['title']:<30} {book['author']:<20} "
+                  f"{book['year'] or '-':<6} {status:<10}")
+
+# ==================== МОДУЛЬ 2: УПРАВЛЕНИЕ ЧИТАТЕЛЯМИ ====================
+
+def add_reader():
+    print("\n--- ДОБАВЛЕНИЕ ЧИТАТЕЛЯ ---")
+    name = input("Имя: ").strip()
+    email = input("Email: ").strip()
+    
+    if not name or not email:
+        print("Ошибка: Имя и Email обязательны!")
+        return
+    
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute("INSERT INTO readers (name, email) VALUES (?, ?)", (name, email))
+            print(f"✓ Читатель \"{name}\" добавлен!")
+        except sqlite3.IntegrityError:
+            print("Ошибка: Читатель с таким email уже существует!")
+
+def list_readers():
+    print("\n--- СПИСОК ЧИТАТЕЛЕЙ ---")
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM readers ORDER BY id")
+        readers = cursor.fetchall()
+        
+        if not readers:
+            print("Нет зарегистрированных читателей.")
+            return
+        
+        print(f"{'ID':<4} {'Имя':<25} {'Email':<30}")
+        print("-" * 60)
+        for reader in readers:
+            print(f"{reader['id']:<4} {reader['name']:<25} {reader['email']:<30}")
+
+# ==================== МОДУЛЬ 3: ВЫДАЧА И ВОЗВРАТ КНИГ ====================
+
+def issue_book():
+    print("\n--- ВЫДАЧА КНИГИ ---")
+    
+    try:
+        book_id = int(input("ID книги: "))
+        reader_id = int(input("ID читателя: "))
+    except ValueError:
+        print("Ошибка: ID должны быть числами!")
+        return
+    
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        
+        cursor.execute("SELECT * FROM books WHERE id = ?", (book_id,))
+        book = cursor.fetchone()
+        
+        cursor.execute("SELECT * FROM readers WHERE id = ?", (reader_id,))
+        reader = cursor.fetchone()
+        
+        if not book:
+            print("Ошибка: Книга не найдена!")
+            return
+        if not book["is_available"]:
+            print("Ошибка: Книга уже выдана!")
+            return
+        if not reader:
+            print("Ошибка: Читатель не найден!")
+            return
+        
+        cursor.execute("UPDATE books SET is_available = 0 WHERE id = ?", (book_id,))
+        cursor.execute("""INSERT INTO circulation (book_id, reader_id, issue_date) 
+                         VALUES (?, ?, ?)""",
+                       (book_id, reader_id, datetime.now().isoformat()))
+        
+        print(f"✓ Книга \"{book['title']}\" выдана читателю \"{reader['name']}\"")
+
+def return_book():
+    print("\n--- ВОЗВРАТ КНИГИ ---")
+    
+    try:
+        book_id = int(input("ID книги: "))
+    except ValueError:
+        print("Ошибка: ID должен быть числом!")
+        return
+    
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        
+        cursor.execute("""SELECT * FROM circulation 
+                         WHERE book_id = ? AND return_date IS NULL""", (book_id,))
+        record = cursor.fetchone()
+        
+        if not record:
+            print("Ошибка: Активная выдача для этой книги не найдена!")
+            return
+        
+        cursor.execute("UPDATE books SET is_available = 1 WHERE id = ?", (book_id,))
+        cursor.execute("UPDATE circulation SET return_date = ? WHERE id = ?",
+                       (datetime.now().isoformat(), record["id"]))
+        
+        cursor.execute("SELECT title FROM books WHERE id = ?", (book_id,))
+        book = cursor.fetchone()
+        print(f"✓ Книга \"{book['title']}\" возвращена!")
+
+def list_active_issues():
+    print("\n--- АКТИВНЫЕ ВЫДАЧИ ---")
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT c.id, b.title, r.name, c.issue_date
+            FROM circulation c
+            JOIN books b ON c.book_id = b.id
+            JOIN readers r ON c.reader_id = r.id
+            WHERE c.return_date IS NULL
+            ORDER BY c.issue_date
+        """)
+        issues = cursor.fetchall()
+        
+        if not issues:
+            print("Нет активных выдач.")
+            return
+        
+        print(f"{'ID':<4} {'Книга':<30} {'Читатель':<25} {'Дата выдачи':<20}")
+        print("-" * 80)
+        for issue in issues:
+            date = issue['issue_date'][:10] if issue['issue_date'] else "—"
+            print(f"{issue['id']:<4} {issue['title']:<30} {issue['name']:<25} {date:<20}")
+
+# ==================== МОДУЛЬ 4: ОТЧЁТЫ ====================
+
+def popular_books():
+    print("\n--- САМЫЕ ПОПУЛЯРНЫЕ КНИГИ ---")
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT b.title, COUNT(c.id) as issue_count
+            FROM circulation c
+            JOIN books b ON c.book_id = b.id
+            GROUP BY b.id
+            ORDER BY issue_count DESC
+            LIMIT 5
+        """)
+        popular = cursor.fetchall()
+        
+        if not popular:
+            print("Нет данных о выдачах.")
+            return
+        
+        print(f"{'Книга':<40} {'Количество выдач':<20}")
+        print("-" * 60)
+        for book in popular:
+            print(f"{book['title']:<40} {book['issue_count']:<20}")
+
+def library_stats():
+    print("\n--- СТАТИСТИКА БИБЛИОТЕКИ ---")
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        
+        cursor.execute("SELECT COUNT(*) as count FROM books")
+        total_books = cursor.fetchone()["count"]
+        
+        cursor.execute("SELECT COUNT(*) as count FROM books WHERE is_available = 1")
+        available_books = cursor.fetchone()["count"]
+        
+        cursor.execute("SELECT COUNT(*) as count FROM readers")
+        total_readers = cursor.fetchone()["count"]
+        
+        cursor.execute("SELECT COUNT(*) as count FROM circulation WHERE return_date IS NULL")
+        active_issues = cursor.fetchone()["count"]
+        
+        cursor.execute("SELECT COUNT(*) as count FROM circulation")
+        total_issues = cursor.fetchone()["count"]
+        
+        print(f"📚 Всего книг: {total_books}")
+        print(f"✓ Доступно книг: {available_books}")
+        print(f"✗ Выдано книг: {total_books - available_books}")
+        print(f"👥 Всего читателей: {total_readers}")
+        print(f"📖 Активных выдач: {active_issues}")
+        print(f"📊 Всего выдач за всё время: {total_issues}")
+
+# ==================== МОДУЛЬ 5: ЭКСПОРТ ДАННЫХ ====================
+
+def export_books():
+    filename = "books_export.csv"
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, title, author, year, is_available FROM books")
+        books = cursor.fetchall()
+        
+        with open(filename, "w", encoding="utf-8", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(["ID", "Название", "Автор", "Год", "Доступна"])
+            for book in books:
+                writer.writerow([book["id"], book["title"], book["author"], 
+                                book["year"] or "", "Да" if book["is_available"] else "Нет"])
+        
+        print(f"✓ Книги экспортированы в файл: {filename}")
+
+def export_readers():
+    filename = "readers_export.csv"
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, name, email FROM readers")
+        readers = cursor.fetchall()
+        
+        with open(filename, "w", encoding="utf-8", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(["ID", "Имя", "Email"])
+            for reader in readers:
+                writer.writerow([reader["id"], reader["name"], reader["email"]])
+        
+        print(f"✓ Читатели экспортированы в файл: {filename}")
+
+def export_circulation():
+    filename = "circulation_export.csv"
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT c.id, b.title, r.name, c.issue_date, c.return_date
+            FROM circulation c
+            JOIN books b ON c.book_id = b.id
+            JOIN readers r ON c.reader_id = r.id
+            ORDER BY c.issue_date DESC
+        """)
+        records = cursor.fetchall()
+        
+        with open(filename, "w", encoding="utf-8", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(["ID", "Книга", "Читатель", "Дата выдачи", "Дата возврата"])
+            for record in records:
+                issue = record["issue_date"][:10] if record["issue_date"] else ""
+                return_d = record["return_date"][:10] if record["return_date"] else "—"
+                writer.writerow([record["id"], record["title"], record["name"], issue, return_d])
+        
+        print(f"✓ История выдач экспортирована в файл: {filename}")
+
+# ==================== ГЛАВНОЕ МЕНЮ ====================
+
+def clear_screen():
+    print("\n" * 2)
+
+def show_menu():
+    print("\n" + "=" * 50)
+    print("          📚 БИБЛИОТЕЧНАЯ СИСТЕМА 📚")
+    print("=" * 50)
+    print("1. 📖 Управление книгами")
+    print("2. 👥 Управление читателями")
+    print("3. 🔄 Выдача и возврат книг")
+    print("4. 📊 Отчёты и аналитика")
+    print("5. 💾 Экспорт данных")
+    print("0. 🚪 Выход")
+    print("-" * 50)
+
+def books_menu():
+    while True:
+        print("\n--- УПРАВЛЕНИЕ КНИГАМИ ---")
+        print("1. Добавить книгу")
+        print("2. Показать все книги")
+        print("3. Найти книгу")
+        print("4. Назад в главное меню")
+        
+        choice = input("\nВыберите действие (1-4): ").strip()
+        
+        if choice == "1":
+            add_book()
+        elif choice == "2":
+            list_books()
+        elif choice == "3":
+            search_books()
+        elif choice == "4":
+            break
+        else:
+            print("Неверный выбор! Попробуйте снова.")
+        
+        input("\nНажмите Enter чтобы продолжить...")
+
+def readers_menu():
+    while True:
+        print("\n--- УПРАВЛЕНИЕ ЧИТАТЕЛЯМИ ---")
+        print("1. Добавить читателя")
+        print("2. Показать всех читателей")
+        print("3. Назад в главное меню")
+        
+        choice = input("\nВыберите действие (1-3): ").strip()
+        
+        if choice == "1":
+            add_reader()
+        elif choice == "2":
+            list_readers()
+        elif choice == "3":
+            break
+        else:
+            print("Неверный выбор! Попробуйте снова.")
+        
+        input("\nНажмите Enter чтобы продолжить...")
+
+def circulation_menu():
+    while True:
+        print("\n--- ВЫДАЧА И ВОЗВРАТ КНИГ ---")
+        print("1. Выдать книгу")
+        print("2. Вернуть книгу")
+        print("3. Показать активные выдачи")
+        print("4. Назад в главное меню")
+        
+        choice = input("\nВыберите действие (1-4): ").strip()
+        
+        if choice == "1":
+            issue_book()
+        elif choice == "2":
+            return_book()
+        elif choice == "3":
+            list_active_issues()
+        elif choice == "4":
+            break
+        else:
+            print("Неверный выбор! Попробуйте снова.")
+        
+        input("\nНажмите Enter чтобы продолжить...")
+
+def reports_menu():
+    while True:
+        print("\n--- ОТЧЁТЫ И АНАЛИТИКА ---")
+        print("1. Самые популярные книги")
+        print("2. Общая статистика")
+        print("3. Назад в главное меню")
+        
+        choice = input("\nВыберите действие (1-3): ").strip()
+        
+        if choice == "1":
+            popular_books()
+        elif choice == "2":
+            library_stats()
+        elif choice == "3":
+            break
+        else:
+            print("Неверный выбор! Попробуйте снова.")
+        
+        input("\nНажмите Enter чтобы продолжить...")
+
+def export_menu():
+    while True:
+        print("\n--- ЭКСПОРТ ДАННЫХ ---")
+        print("1. Экспорт книг (books_export.csv)")
+        print("2. Экспорт читателей (readers_export.csv)")
+        print("3. Экспорт истории выдач (circulation_export.csv)")
+        print("4. Назад в главное меню")
+        
+        choice = input("\nВыберите действие (1-4): ").strip()
+        
+        if choice == "1":
+            export_books()
+        elif choice == "2":
+            export_readers()
+        elif choice == "3":
+            export_circulation()
+        elif choice == "4":
+            break
+        else:
+            print("Неверный выбор! Попробуйте снова.")
+        
+        input("\nНажмите Enter чтобы продолжить...")
+
+def main():
+    init_db()
+    
+    while True:
+        show_menu()
+        choice = input("Ваш выбор: ").strip()
+        
+        if choice == "1":
+            books_menu()
+        elif choice == "2":
+            readers_menu()
+        elif choice == "3":
+            circulation_menu()
+        elif choice == "4":
+            reports_menu()
+        elif choice == "5":
+            export_menu()
+        elif choice == "0":
+            print("\n👋 До свидания! Спасибо за использование библиотечной системы.\n")
+            break
+        else:
+            print("❌ Неверный выбор! Пожалуйста, выберите пункт от 0 до 5.")
+            input("\nНажмите Enter чтобы продолжить...")
+
+if __name__ == "__main__":
+    main()
