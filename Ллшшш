@@ -33,54 +33,79 @@ def add_book():
 def list_books():
     with db() as cur:
         books = cur.execute("SELECT * FROM books").fetchall()
-    if not books: print("Нет книг"); return
-    print("\nID  Название                    Автор           Статус")
+    if not books:
+        print("Нет книг")
+        return
+    print("\nСписок книг:")
     for b in books:
-        print(f"{b['id']:<3} {b['title']:<25} {b['author']:<15} {'есть' if b['available'] else 'выдана'}")
+        status = 'есть' if b['available'] else 'выдана'
+        print(f"{b['id']}. {b['title']} - {b['author']} ({status})")
 
 def find_book():
     q = input("Что ищем? ")
     with db() as cur:
         books = cur.execute("SELECT * FROM books WHERE title LIKE ? OR author LIKE ?", (f"%{q}%", f"%{q}%")).fetchall()
-    if not books: print("Не найдено")
+    if not books:
+        print("Не найдено")
     else:
-        for b in books: print(f"{b['id']}. {b['title']} - {b['author']}")
+        print("\nРезультаты поиска:")
+        for b in books:
+            status = 'есть' if b['available'] else 'выдана'
+            print(f"{b['id']}. {b['title']} - {b['author']} ({status})")
 
 def add_reader():
     with db() as cur:
         try:
             cur.execute("INSERT INTO readers (name, email) VALUES (?, ?)", (input("Имя: "), input("Email: ")))
             print("Читатель добавлен")
-        except: print("Ошибка: email уже есть")
+        except:
+            print("Ошибка: email уже есть")
 
 def list_readers():
     with db() as cur:
         readers = cur.execute("SELECT * FROM readers").fetchall()
-    if not readers: print("Нет читателей"); return
-    print("\nID  Имя                  Email")
-    for r in readers: print(f"{r['id']:<3} {r['name']:<20} {r['email']}")
+    if not readers:
+        print("Нет читателей")
+        return
+    print("\nСписок читателей:")
+    for r in readers:
+        print(f"{r['id']}. {r['name']} - {r['email']}")
 
 def issue():
     try:
-        bid, rid = int(input("ID книги: ")), int(input("ID читателя: "))
-    except: print("Ошибка: введите числа"); return
+        bid = int(input("ID книги: "))
+        rid = int(input("ID читателя: "))
+    except:
+        print("Ошибка: введите числа")
+        return
     with db() as cur:
         book = cur.execute("SELECT * FROM books WHERE id=?", (bid,)).fetchone()
         reader = cur.execute("SELECT * FROM readers WHERE id=?", (rid,)).fetchone()
-        if not book: print("Книга не найдена"); return
-        if not book['available']: print("Книга уже выдана"); return
-        if not reader: print("Читатель не найден"); return
+        if not book:
+            print("Книга не найдена")
+            return
+        if not book['available']:
+            print("Книга уже выдана")
+            return
+        if not reader:
+            print("Читатель не найден")
+            return
         cur.execute("UPDATE books SET available=0 WHERE id=?", (bid,))
         cur.execute("INSERT INTO loans (book_id, reader_id, date_out) VALUES (?,?,?)", 
                    (bid, rid, datetime.now().isoformat()))
     print(f"Книга выдана {reader['name']}")
 
 def return_book():
-    try: bid = int(input("ID книги: "))
-    except: print("Ошибка: введите число"); return
+    try:
+        bid = int(input("ID книги: "))
+    except:
+        print("Ошибка: введите число")
+        return
     with db() as cur:
         loan = cur.execute("SELECT * FROM loans WHERE book_id=? AND date_in IS NULL", (bid,)).fetchone()
-        if not loan: print("Активная выдача не найдена"); return
+        if not loan:
+            print("Активная выдача не найдена")
+            return
         cur.execute("UPDATE books SET available=1 WHERE id=?", (bid,))
         cur.execute("UPDATE loans SET date_in=? WHERE id=?", (datetime.now().isoformat(), loan['id']))
     print("Книга возвращена")
@@ -88,22 +113,29 @@ def return_book():
 def active_loans():
     with db() as cur:
         loans = cur.execute('''SELECT b.title, r.name, l.date_out FROM loans l
-                               JOIN books b ON l.book_id=b.id JOIN readers r ON l.reader_id=r.id
+                               JOIN books b ON l.book_id=b.id 
+                               JOIN readers r ON l.reader_id=r.id
                                WHERE l.date_in IS NULL''').fetchall()
-    if not loans: print("Нет активных выдач")
-    else:
-        print("\nАктивные выдачи:")
-        for l in loans: print(f"{l['title']} -> {l['name']} ({l['date_out'][:10]})")
+    if not loans:
+        print("Нет активных выдач")
+        return
+    print("\nАктивные выдачи:")
+    for l in loans:
+        print(f"{l['title']} -> {l['name']} ({l['date_out'][:10]})")
 
 def popular():
     with db() as cur:
         pop = cur.execute('''SELECT b.title, COUNT(*) as cnt FROM loans l
-                             JOIN books b ON l.book_id=b.id GROUP BY b.id
-                             ORDER BY cnt DESC LIMIT 5''').fetchall()
-    if not pop: print("Нет данных")
-    else:
-        print("\nПопулярные книги:")
-        for p in pop: print(f"{p['title']} — {p['cnt']} выдач")
+                             JOIN books b ON l.book_id=b.id 
+                             GROUP BY b.id
+                             ORDER BY cnt DESC 
+                             LIMIT 5''').fetchall()
+    if not pop:
+        print("Нет данных")
+        return
+    print("\nПопулярные книги:")
+    for p in pop:
+        print(f"{p['title']} — {p['cnt']} выдач")
 
 def stats():
     with db() as cur:
@@ -113,70 +145,91 @@ def stats():
         active = cur.execute("SELECT COUNT(*) FROM loans WHERE date_in IS NULL").fetchone()[0]
     print(f"\nВсего книг: {total}")
     print(f"Доступно: {avail}")
-    print(f"Выдано: {total-avail}")
+    print(f"Выдано: {total - avail}")
     print(f"Читателей: {readers}")
     print(f"Активных выдач: {active}")
 
 def export_books():
     with db() as cur:
         books = cur.execute("SELECT id,title,author,year,available FROM books").fetchall()
-    with open("books.csv","w",encoding="utf-8",newline="") as f:
+    with open("books.csv", "w", encoding="utf-8", newline="") as f:
         w = csv.writer(f)
-        w.writerow(["ID","Название","Автор","Год","Доступна"])
-        for b in books: w.writerow([b['id'],b['title'],b['author'],b['year'] or "","Да" if b['available'] else "Нет"])
+        w.writerow(["ID", "Название", "Автор", "Год", "Доступна"])
+        for b in books:
+            w.writerow([b['id'], b['title'], b['author'], b['year'] or "", "Да" if b['available'] else "Нет"])
     print("Экспортировано в books.csv")
 
 def export_readers():
     with db() as cur:
         readers = cur.execute("SELECT id,name,email FROM readers").fetchall()
-    with open("readers.csv","w",encoding="utf-8",newline="") as f:
+    with open("readers.csv", "w", encoding="utf-8", newline="") as f:
         w = csv.writer(f)
-        w.writerow(["ID","Имя","Email"])
-        for r in readers: w.writerow([r['id'],r['name'],r['email']])
+        w.writerow(["ID", "Имя", "Email"])
+        for r in readers:
+            w.writerow([r['id'], r['name'], r['email']])
     print("Экспортировано в readers.csv")
 
 def menu():
     while True:
         print("\n1.Книги 2.Читатели 3.Выдача 4.Отчёты 5.Экспорт 0.Выход")
         c = input("Выбор: ")
-        if c=="1":
+        if c == "1":
             while True:
                 print("\n1.Добавить 2.Список 3.Найти 4.Назад")
                 cc = input("Выбор: ")
-                if cc=="1": add_book()
-                elif cc=="2": list_books()
-                elif cc=="3": find_book()
-                elif cc=="4": break
-        elif c=="2":
+                if cc == "1":
+                    add_book()
+                elif cc == "2":
+                    list_books()
+                elif cc == "3":
+                    find_book()
+                elif cc == "4":
+                    break
+        elif c == "2":
             while True:
                 print("\n1.Добавить 2.Список 3.Назад")
                 cc = input("Выбор: ")
-                if cc=="1": add_reader()
-                elif cc=="2": list_readers()
-                elif cc=="3": break
-        elif c=="3":
+                if cc == "1":
+                    add_reader()
+                elif cc == "2":
+                    list_readers()
+                elif cc == "3":
+                    break
+        elif c == "3":
             while True:
                 print("\n1.Выдать 2.Вернуть 3.Активные 4.Назад")
                 cc = input("Выбор: ")
-                if cc=="1": issue()
-                elif cc=="2": return_book()
-                elif cc=="3": active_loans()
-                elif cc=="4": break
-        elif c=="4":
+                if cc == "1":
+                    issue()
+                elif cc == "2":
+                    return_book()
+                elif cc == "3":
+                    active_loans()
+                elif cc == "4":
+                    break
+        elif c == "4":
             while True:
                 print("\n1.Популярные 2.Статистика 3.Назад")
                 cc = input("Выбор: ")
-                if cc=="1": popular()
-                elif cc=="2": stats()
-                elif cc=="3": break
-        elif c=="5":
+                if cc == "1":
+                    popular()
+                elif cc == "2":
+                    stats()
+                elif cc == "3":
+                    break
+        elif c == "5":
             while True:
                 print("\n1.Книги 2.Читатели 3.Назад")
                 cc = input("Выбор: ")
-                if cc=="1": export_books()
-                elif cc=="2": export_readers()
-                elif cc=="3": break
-        elif c=="0": print("До свидания!"); break
+                if cc == "1":
+                    export_books()
+                elif cc == "2":
+                    export_readers()
+                elif cc == "3":
+                    break
+        elif c == "0":
+            print("До свидания!")
+            break
 
 if __name__ == "__main__":
     init()
