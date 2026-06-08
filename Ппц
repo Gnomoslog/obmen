@@ -1,0 +1,294 @@
+import json
+import os
+from datetime import datetime
+
+DATA_FILE = "tasks.json"
+tasks = {}
+next_id = 1
+
+def load_tasks():
+    global tasks, next_id
+    if os.path.exists(DATA_FILE):
+        try:
+            with open(DATA_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                tasks = {}
+                max_id = 0
+                for item in data:
+                    tasks[item["id"]] = item
+                    if item["id"] > max_id:
+                        max_id = item["id"]
+                next_id = max_id + 1
+        except:
+            tasks = {}
+            next_id = 1
+
+def save_tasks():
+    try:
+        with open(DATA_FILE, "w", encoding="utf-8") as f:
+            json.dump(list(tasks.values()), f, ensure_ascii=False, indent=2)
+    except:
+        print("Ошибка сохранения")
+
+def is_valid_date(date_str):
+    try:
+        datetime.strptime(date_str, "%Y-%m-%d")
+        return True
+    except:
+        return False
+
+def add_task():
+    global next_id
+    print("\n--- Добавление задачи ---")
+    title = input("Название: ").strip()
+    if not title:
+        print("Ошибка: название не может быть пустым")
+        return
+    description = input("Описание: ").strip()
+    responsible = input("Ответственный (ФИО): ").strip()
+    if not responsible:
+        print("Ошибка: ответственный не может быть пустым")
+        return
+    deadline = input("Срок (ГГГГ-ММ-ДД): ").strip()
+    if not is_valid_date(deadline):
+        print("Ошибка: неверный формат даты")
+        return
+    
+    task = {
+        "id": next_id,
+        "title": title,
+        "description": description,
+        "responsible": responsible,
+        "status": "новая",
+        "created_at": datetime.now().strftime("%Y-%m-%d"),
+        "deadline": deadline
+    }
+    tasks[next_id] = task
+    print(f"Задача #{next_id} добавлена")
+    next_id += 1
+    save_tasks()
+
+def show_table(task_list):
+    if not task_list:
+        print("Нет задач")
+        return
+    print("\n" + "-" * 110)
+    print(f"{'ID':<4} {'Название':<25} {'Описание':<25} {'Ответственный':<20} {'Статус':<12} {'Срок':<12}")
+    print("-" * 110)
+    for t in task_list:
+        print(f"{t['id']:<4} {t['title'][:24]:<25} {t['description'][:24]:<25} {t['responsible'][:19]:<20} {t['status']:<12} {t['deadline']:<12}")
+    print("-" * 110)
+
+def list_tasks(username, is_admin):
+    result = list(tasks.values())
+    if not is_admin:
+        result = [t for t in result if t["responsible"] == username]
+    show_table(result)
+
+def show_by_status(username, is_admin):
+    status = input("Статус (новая/в работе/выполнена): ").strip()
+    if status not in ["новая", "в работе", "выполнена"]:
+        print("Ошибка: неверный статус")
+        return
+    result = [t for t in tasks.values() if t["status"] == status]
+    if not is_admin:
+        result = [t for t in result if t["responsible"] == username]
+    show_table(result)
+
+def update_task(username, is_admin):
+    try:
+        tid = int(input("ID задачи: ").strip())
+        if tid not in tasks:
+            print("Задача не найдена")
+            return
+        if not is_admin and tasks[tid]["responsible"] != username:
+            print("Нет прав на редактирование")
+            return
+        
+        print("Оставьте поле пустым, чтобы не менять")
+        title = input("Новое название: ").strip()
+        if title:
+            tasks[tid]["title"] = title
+        desc = input("Новое описание: ").strip()
+        if desc:
+            tasks[tid]["description"] = desc
+        resp = input("Новый ответственный: ").strip()
+        if resp:
+            tasks[tid]["responsible"] = resp
+        deadline = input("Новый срок (ГГГГ-ММ-ДД): ").strip()
+        if deadline:
+            if is_valid_date(deadline):
+                tasks[tid]["deadline"] = deadline
+            else:
+                print("Неверный формат даты, поле не изменено")
+        print(f"Задача #{tid} обновлена")
+        save_tasks()
+    except ValueError:
+        print("Ошибка: ID должен быть числом")
+
+def mark_done(username, is_admin):
+    try:
+        tid = int(input("ID задачи: ").strip())
+        if tid not in tasks:
+            print("Задача не найдена")
+            return
+        if not is_admin and tasks[tid]["responsible"] != username:
+            print("Нет прав")
+            return
+        tasks[tid]["status"] = "выполнена"
+        print(f"Задача #{tid} отмечена как выполненная")
+        save_tasks()
+    except ValueError:
+        print("Ошибка: ID должен быть числом")
+
+def delete_task(username, is_admin):
+    try:
+        tid = int(input("ID задачи: ").strip())
+        if tid not in tasks:
+            print("Задача не найдена")
+            return
+        if not is_admin and tasks[tid]["responsible"] != username:
+            print("Нет прав")
+            return
+        confirm = input(f"Удалить задачу #{tid}? (y/n): ").lower()
+        if confirm == "y":
+            del tasks[tid]
+            print(f"Задача #{tid} удалена")
+            save_tasks()
+    except ValueError:
+        print("Ошибка: ID должен быть числом")
+
+def show_by_responsible(username, is_admin):
+    name = input("ФИО ответственного: ").strip()
+    if not name:
+        print("Ошибка: введите имя")
+        return
+    result = [t for t in tasks.values() if t["responsible"] == name]
+    if not is_admin:
+        result = [t for t in result if t["responsible"] == username]
+    show_table(result)
+
+def show_overdue(username, is_admin):
+    today = datetime.now()
+    overdue = []
+    for t in tasks.values():
+        if t["status"] != "выполнена":
+            try:
+                deadline_date = datetime.strptime(t["deadline"], "%Y-%m-%d")
+                if deadline_date < today:
+                    overdue.append(t)
+            except:
+                pass
+    if not is_admin:
+        overdue = [t for t in overdue if t["responsible"] == username]
+    if overdue:
+        print("\n⚠️ Просроченные задачи:")
+        show_table(overdue)
+    else:
+        print("Просроченных задач нет")
+
+def export_tasks():
+    print("\n1 - Экспорт в CSV")
+    print("2 - Экспорт в HTML")
+    choice = input("Выберите: ").strip()
+    
+    if choice == "1":
+        import csv
+        try:
+            with open("tasks_export.csv", "w", encoding="utf-8-sig", newline="") as f:
+                writer = csv.writer(f)
+                writer.writerow(["ID", "Название", "Описание", "Ответственный", "Статус", "Создана", "Срок"])
+                for t in tasks.values():
+                    writer.writerow([t["id"], t["title"], t["description"], t["responsible"], t["status"], t["created_at"], t["deadline"]])
+            print("Экспорт в CSV выполнен: tasks_export.csv")
+        except Exception as e:
+            print(f"Ошибка: {e}")
+    elif choice == "2":
+        html = """<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"><title>Отчёт по задачам</title>
+<style>
+    table { border-collapse: collapse; width: 100%; }
+    th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+    th { background-color: #4CAF50; color: white; }
+    .overdue { background-color: #ffdddd; }
+</style>
+</head>
+<body>
+<h1>Список задач</h1>
+<table>
+<tr><th>ID</th><th>Название</th><th>Описание</th><th>Ответственный</th><th>Статус</th><th>Создана</th><th>Срок</th></tr>
+"""
+        today = datetime.now()
+        for t in tasks.values():
+            is_overdue = False
+            if t["status"] != "выполнена":
+                try:
+                    if datetime.strptime(t["deadline"], "%Y-%m-%d") < today:
+                        is_overdue = True
+                except:
+                    pass
+            cls = ' class="overdue"' if is_overdue else ""
+            html += f"<tr{cls}>"
+            html += f"<td>{t['id']}</td><td>{t['title']}</td><td>{t['description']}</td>"
+            html += f"<td>{t['responsible']}</td><td>{t['status']}</td><td>{t['created_at']}</td><td>{t['deadline']}</td>"
+            html += "</tr>\n"
+        html += "</table>\n</body>\n</html>"
+        try:
+            with open("tasks_report.html", "w", encoding="utf-8") as f:
+                f.write(html)
+            print("Экспорт в HTML выполнен: tasks_report.html")
+        except Exception as e:
+            print(f"Ошибка: {e}")
+    else:
+        print("Неверный выбор")
+
+def main():
+    load_tasks()
+    
+    username = input("Введите ваше имя (или 'admin' для полного доступа): ").strip()
+    is_admin = (username == "admin")
+    
+    print("\n=== Система учёта задач ===")
+    print("Команды:")
+    print("  add, list, show, update, done, delete, responsible, overdue, export, exit")
+    if not is_admin:
+        print(f"  (Вы вошли как {username} - видны только ваши задачи)")
+    
+    while True:
+        try:
+            cmd = input("\n> ").strip().lower()
+            if not cmd:
+                continue
+            
+            if cmd == "exit":
+                print("До свидания!")
+                break
+            elif cmd == "add":
+                add_task()
+            elif cmd == "list":
+                list_tasks(username, is_admin)
+            elif cmd == "show":
+                show_by_status(username, is_admin)
+            elif cmd == "update":
+                update_task(username, is_admin)
+            elif cmd == "done":
+                mark_done(username, is_admin)
+            elif cmd == "delete":
+                delete_task(username, is_admin)
+            elif cmd == "responsible":
+                show_by_responsible(username, is_admin)
+            elif cmd == "overdue":
+                show_overdue(username, is_admin)
+            elif cmd == "export":
+                export_tasks()
+            else:
+                print("Неизвестная команда. Доступны: add, list, show, update, done, delete, responsible, overdue, export, exit")
+        except KeyboardInterrupt:
+            print("\nВыход...")
+            break
+        except Exception as e:
+            print(f"Ошибка: {e}")
+
+if __name__ == "__main__":
+    main()
