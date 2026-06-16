@@ -1,0 +1,108 @@
+import requests
+import pandas as pd
+from openpyxl.utils import get_column_letter
+from collections import Counter
+import re
+from datetime import datetime
+import time
+
+HH_API_URL = "https://api.hh.ru/vacancies"
+STOP_WORDS = {'и', 'в', 'на', 'для', 'с', 'по', 'не', 'без', 'от', 'до', 'у', 'о', 'об', 'над', 'под', 'при'}
+
+def fetch_vacancies(keyword, pages=2, timeout=30, max_retries=5):
+    vacancies, headers = [], {'User-Agent': 'VacancyParser/1.0 (your.email@example.com)'}
+    for page in range(pages):
+        params = {'text': keyword, 'page': page, 'per_page': 20}
+        for attempt in range(max_retries):
+            try:
+                response = requests.get(HH_API_URL, params=params, timeout=timeout, headers=headers)
+                response.raise_for_status()
+                data = response.json()
+                vacancies.extend(data.get('items', []))
+                if page >= data.get('pages', 0) - 1:
+                    print(f"Достигнут конец доступных страниц: {data.get('pages', 0)}")
+                    break
+                break
+            except requests.exceptions.RequestException as e:
+                print(f"Попытка {attempt + 1} не удалась: {e}")
+                if attempt == max_retries - 1: raise
+        time.sleep(1)
+    return vacancies
+
+def extract_vacancy_data(vacancy):
+    salary, area, employer = vacancy.get('salary'), vacancy.get('area', {}), vacancy.get('employer', {})
+    salary_from = salary_to = currency = None
+    if salary:
+        salary_from, salary_to, currency = salary.get('from'), salary.get('to'), salary.get('currency', '').upper()
+        if currency and currency != 'RUR': print(f"Предупреждение: зарплата указана в {currency}, а не в рублях")
+    city = area.get('name', '') if area else ''
+    employer_name = employer.get('name', '') if employer else ''
+    published_at = vacancy.get('published_at', '')
+    published_date = 'Некорректная дата'
+    if published_at:
+        try:
+            date_obj = datetime.fromisoformat(published_at.replace('Z', '+00:00'))
+            published_date = date_obj.strftime('%d-%m-%Y')
+        except ValueError: pass
+    requirement = (vacancy.get('snippet', {}) or {}).get('requirement', '')
+    return {
+        'Название вакансии': vacancy.get('name', ''),
+        'Зарплата от': salary_from,
+        'Зарплата до': salary_to,
+        'Валюта': currency,
+        'Город': city,
+        'Работодатель': employer_name,
+        'Дата публикации': published_date,
+        'Краткое описание': requirement
+    }
+
+def save_to_excel(vacancies, keyword):
+    df = pd.DataFrame([extract_vacancy_data(vac) for vac in vacancies])
+    filename = f'vacancies_{keyword}.xlsx'
+    with pd.ExcelWriter(filename, engine='openpyxl') as writer:
+        df.to_excel(writer, sheet_name='Вакансии', index=False)
+        worksheet = writer.sheets['Вакансии']
+        for column in worksheet.columns:
+            max_length = max((len(str(cell.value)) for cell in column if cell.value), default=0)
+            adjusted_width = min(max_length + 2, 50)
+            worksheet.column_dimensions[get_column_letter(column[0].column)].width = adjusted_width
+    print(f"Данные сохранены в файл: {filename}")
+
+def get_top_skills(vacancies, top_n=10):
+    all_words = []
+    for vac in vacancies:
+        requirement = (vac.get('snippet', {}) or {}).get('requirement', '')
+        if requirement:
+            words = re.findall(r'\b[а-яa-zё]+\b', requirement.lower())
+            all_words.extend([word for word in words if word not in STOP_WORDS])
+    return Counter(all_words).most_common(top_n)
+
+def filter_by_salary(vacancies, min_salary=0):
+    return [
+        vac for vac in vacancies
+        if vac.get('salary') and vac['salary'].get('from', 0) is not None
+        and vac['salary'].get('from', 0) >= min_salary
+    ]
+
+def main():
+    keyword = input("Введите назван раб ദ്ദി/ᐠ - ⩊ -マ.ᐟ :")
+    pages = int(input("Сколько страниц вакансий чекнуть? по умолчанию 3: неко няяя ") or 3)
+    min_salary = int(input("Минимальная зарплата для вас (по умолчанию 5р): ") or 50000)
+    print("Сбор даныз ᓚᘏ𑄝...")
+    try:
+        data = fetch_vacancies(keyword, pages=pages)
+        print(f"Найдено {len(data)} вакансий")
+        filtered_data = filter_by_salary(data, min_salary=min_salary)
+        print(f"После фильтрации по ЗП: {len(filtered_data)}")
+        save_to_excel(filtered_data, keyword)
+        top_skills = get_top_skills(filtered_data)
+        print("\nТоп-10 навыков:")
+        for word, count in top_skills: print(f"{word}: {count} раз")
+    except Exception as e: print(f"Произошла ошибка: {e}")
+
+if __name__ == "__main__":
+    main()
+
+Добавь цветной вывод в консоль. 
+Два региона, где сравнивается вакансии Москвы и Питера. 
+Проверка интернета.
