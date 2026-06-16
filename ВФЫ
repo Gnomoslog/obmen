@@ -1,40 +1,138 @@
-import requests
-import pandas as pd
+import requests, pandas as pd, socket, re, time
 from openpyxl.utils import get_column_letter
 from collections import Counter
-import re
 from datetime import datetime
-import time
+from colorama import init, Fore, Style
+init(autoreset=True)
 
-HH_API_URL = "https://api.hh.ru/vacancies"
-STOP_WORDS = {'и', 'в', 'на', 'для', 'с', 'по', 'не', 'без', 'от', 'до', 'у', 'о', 'об', 'над', 'под', 'при'}
+HH_URL, STOP_WORDS = "https://api.hh.ru/vacancies", {'и','в','на','для','с','по','не','без','от','до','у','о','об','над','под','при'}
 
-def fetch_vacancies(keyword, pages=2, timeout=30, max_retries=5):
-    vacancies, headers = [], {'User-Agent': 'VacancyParser/1.0 (your.email@example.com)'}
+def check_internet():
+    try:
+        socket.setdefaulttimeout(3)
+        socket.socket(socket.AF_INET, socket.SOCK_STREAM).connect(("8.8.8.8", 53))
+        print(f"{Fore.GREEN}Internet connection OK{Style.RESET_ALL}")
+        return True
+    except:
+        print(f"{Fore.RED}No internet connection!{Style.RESET_ALL}")
+        return False
+
+def fetch_vacancies(keyword, pages=2, area_id=None):
+    vacancies, headers = [], {'User-Agent': 'VacancyParser/1.0'}
     for page in range(pages):
         params = {'text': keyword, 'page': page, 'per_page': 20}
-        for attempt in range(max_retries):
+        if area_id: params['area'] = area_id
+        for attempt in range(5):
             try:
-                response = requests.get(HH_API_URL, params=params, timeout=timeout, headers=headers)
-                response.raise_for_status()
-                data = response.json()
+                data = requests.get(HH_URL, params=params, timeout=30, headers=headers).json()
                 vacancies.extend(data.get('items', []))
-                if page >= data.get('pages', 0) - 1:
-                    print(f"Достигнут конец доступных страниц: {data.get('pages', 0)}")
-                    break
+                if page >= data.get('pages', 0) - 1: break
                 break
-            except requests.exceptions.RequestException as e:
-                print(f"Попытка {attempt + 1} не удалась: {e}")
-                if attempt == max_retries - 1: raise
+            except: 
+                if attempt == 4: raise
         time.sleep(1)
     return vacancies
 
-def extract_vacancy_data(vacancy):
-    salary, area, employer = vacancy.get('salary'), vacancy.get('area', {}), vacancy.get('employer', {})
-    salary_from = salary_to = currency = None
-    if salary:
-        salary_from, salary_to, currency = salary.get('from'), salary.get('to'), salary.get('currency', '').upper()
-        if currency and currency != 'RUR': print(f"Предупреждение: зарплата указана в {currency}, а не в рублях")
+def extract_vacancy_data(vac):
+    s, a, e = vac.get('salary'), vac.get('area', {}), vac.get('employer', {})
+    sf = st = cur = None
+    if s:
+        sf, st, cur = s.get('from'), s.get('to'), s.get('currency', '').upper()
+        if cur and cur != 'RUR': print(f"{Fore.YELLOW}Currency: {cur}{Style.RESET_ALL}")
+    date = 'Invalid date'
+    if vac.get('published_at'):
+        try:
+            date = datetime.fromisoformat(vac['published_at'].replace('Z','+00:00')).strftime('%d-%m-%Y')
+        except: pass
+    return {
+        'Title': vac.get('name',''), 'Salary from': sf, 'Salary to': st, 'Currency': cur,
+        'City': a.get('name',''), 'Employer': e.get('name',''),
+        'Date': date, 'Description': (vac.get('snippet',{}) or {}).get('requirement','')
+    }
+
+def save_excel(vacancies, keyword, region=""):
+    df = pd.DataFrame([extract_vacancy_data(v) for v in vacancies])
+    fn = f'vacancies_{keyword}_{region}.xlsx' if region else f'vacancies_{keyword}.xlsx'
+    with pd.ExcelWriter(fn, engine='openpyxl') as writer:
+        df.to_excel(writer, sheet_name='Vacancies', index=False)
+        ws = writer.sheets['Vacancies']
+        for col in ws.columns:
+            max_len = max((len(str(c.value)) for c in col if c.value), default=0)
+            ws.column_dimensions[get_column_letter(col[0].column)].width = min(max_len+2, 50)
+    print(f"{Fore.GREEN}Saved: {fn}{Style.RESET_ALL}")
+
+def get_top_skills(vacancies, n=10):
+    words = []
+    for v in vacancies:
+        req = (v.get('snippet',{}) or {}).get('requirement','')
+        if req:
+            words.extend([w for w in re.findall(r'\b[а-яa-zё]+\b', req.lower()) if w not in STOP_WORDS])
+    return Counter(words).most_common(n)
+
+def filter_salary(vacancies, min_salary=0):
+    return [v for v in vacancies if v.get('salary') and v['salary'].get('from',0) is not None and v['salary']['from'] >= min_salary]
+
+def print_stats(vacancies, name):
+    if not vacancies: return
+    salaries = [v['salary']['from'] for v in vacancies if v.get('salary') and v['salary'].get('from')]
+    avg = sum(salaries)/len(salaries) if salaries else 0
+    print(f"\n{Fore.CYAN}{'='*50}{Style.RESET_ALL}")
+    print(f"{Fore.YELLOW}{name}: {len(vacancies)} vacancies, avg salary {int(avg):,} RUB{Style.RESET_ALL}")
+    top = get_top_skills(vacancies, 5)
+    if top:
+        print(f"{Fore.MAGENTA}Top-5 skills:{Style.RESET_ALL}")
+        for w,c in top: print(f"  {Fore.GREEN}{w}{Style.RESET_ALL}: {c}")
+
+def compare_regions(m, spb):
+    print(f"\n{Fore.CYAN}{'='*60}{Style.RESET_ALL}")
+    print(f"{Fore.YELLOW}COMPARISON MOSCOW vs SPB{Style.RESET_ALL}")
+    print(f"{Fore.CYAN}{'='*60}{Style.RESET_ALL}")
+    
+    def avg(v): 
+        s = [x['salary']['from'] for x in v if x.get('salary') and x['salary'].get('from')]
+        return sum(s)/len(s) if s else 0
+    
+    am, aspb = avg(m), avg(spb)
+    print(f"{Fore.WHITE}Average salary:{Style.RESET_ALL}")
+    print(f"  {Fore.RED}Moscow: {int(am):,} RUB{Style.RESET_ALL}")
+    print(f"  {Fore.BLUE}SPB: {int(aspb):,} RUB{Style.RESET_ALL}")
+    diff = abs(am-aspb)/max(am,aspb)*100 if max(am,aspb) else 0
+    print(f"  {Fore.GREEN}-> {'Moscow' if am>aspb else 'SPB'} higher by {diff:.1f}%{Style.RESET_ALL}")
+    
+    ms = set(w for w,_ in get_top_skills(m, 10))
+    ss = set(w for w,_ in get_top_skills(spb, 10))
+    print(f"\n{Fore.WHITE}Common skills: {', '.join(ms & ss) if ms&ss else 'none'}{Style.RESET_ALL}")
+    if ms-ss: print(f"  {Fore.RED}Unique Moscow: {', '.join(ms-ss)}{Style.RESET_ALL}")
+    if ss-ms: print(f"  {Fore.BLUE}Unique SPB: {', '.join(ss-ms)}{Style.RESET_ALL}")
+
+def main():
+    if not check_internet(): return
+    print(f"{Fore.CYAN}Vacancy search tool{Style.RESET_ALL}")
+    keyword = input(f"{Fore.YELLOW}Profession: {Style.RESET_ALL}")
+    pages = int(input(f"{Fore.YELLOW}Pages (3): {Style.RESET_ALL}") or 3)
+    min_salary = int(input(f"{Fore.YELLOW}Min salary (50000): {Style.RESET_ALL}") or 50000)
+    
+    try:
+        print(f"\n{Fore.RED}Moscow...{Style.RESET_ALL}")
+        m = fetch_vacancies(keyword, pages, 1)
+        print(f"{Fore.BLUE}SPB...{Style.RESET_ALL}")
+        s = fetch_vacancies(keyword, pages, 2)
+        
+        mf, sf = filter_salary(m, min_salary), filter_salary(s, min_salary)
+        print(f"\n{Fore.CYAN}After filter: Moscow {len(mf)}, SPB {len(sf)}{Style.RESET_ALL}")
+        
+        if mf: save_excel(mf, keyword, "Moscow")
+        if sf: save_excel(sf, keyword, "SPB")
+        
+        print_stats(mf, "Moscow")
+        print_stats(sf, "SPB")
+        if mf and sf: compare_regions(mf, sf)
+        else: print(f"{Fore.YELLOW}Insufficient data for comparison{Style.RESET_ALL}")
+    except Exception as e:
+        print(f"{Fore.RED}Error: {e}{Style.RESET_ALL}")
+
+if __name__ == "__main__":
+    main()        if currency and currency != 'RUR': print(f"Предупреждение: зарплата указана в {currency}, а не в рублях")
     city = area.get('name', '') if area else ''
     employer_name = employer.get('name', '') if employer else ''
     published_at = vacancy.get('published_at', '')
