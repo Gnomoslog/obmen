@@ -1,11 +1,18 @@
-import requests, pandas as pd, socket, re, time
+```python
+import requests
+import pandas as pd
 from openpyxl.utils import get_column_letter
 from collections import Counter
+import re
 from datetime import datetime
+import time
+import socket
 from colorama import init, Fore, Style
+
 init(autoreset=True)
 
-HH_URL, STOP_WORDS = "https://api.hh.ru/vacancies", {'и','в','на','для','с','по','не','без','от','до','у','о','об','над','под','при'}
+HH_API_URL = "https://api.hh.ru/vacancies"
+STOP_WORDS = {'и', 'в', 'на', 'для', 'с', 'по', 'не', 'без', 'от', 'до', 'у', 'о', 'об', 'над', 'под', 'при'}
 
 def check_internet():
     try:
@@ -17,119 +24,197 @@ def check_internet():
         print(f"{Fore.RED}No internet connection!{Style.RESET_ALL}")
         return False
 
-def fetch_vacancies(keyword, pages=2, area_id=None):
-    vacancies, headers = [], {'User-Agent': 'VacancyParser/1.0'}
+def fetch_vacancies(keyword, pages=2, timeout=30, max_retries=5, area_id=None):
+    vacancies = []
+    headers = {'User-Agent': 'VacancyParser/1.0 (your.email@example.com)'}
+    
     for page in range(pages):
         params = {'text': keyword, 'page': page, 'per_page': 20}
-        if area_id: params['area'] = area_id
-        for attempt in range(5):
+        if area_id:
+            params['area'] = area_id
+            
+        for attempt in range(max_retries):
             try:
-                data = requests.get(HH_URL, params=params, timeout=30, headers=headers).json()
+                response = requests.get(HH_API_URL, params=params, timeout=timeout, headers=headers)
+                response.raise_for_status()
+                data = response.json()
                 vacancies.extend(data.get('items', []))
-                if page >= data.get('pages', 0) - 1: break
+                
+                if page >= data.get('pages', 0) - 1:
+                    print(f"{Fore.CYAN}End of pages reached: {data.get('pages', 0)}{Style.RESET_ALL}")
+                    break
                 break
-            except: 
-                if attempt == 4: raise
+            except requests.exceptions.RequestException as e:
+                print(f"{Fore.YELLOW}Attempt {attempt + 1} failed: {e}{Style.RESET_ALL}")
+                if attempt == max_retries - 1:
+                    raise
         time.sleep(1)
     return vacancies
 
-def extract_vacancy_data(vac):
-    s, a, e = vac.get('salary'), vac.get('area', {}), vac.get('employer', {})
-    sf = st = cur = None
-    if s:
-        sf, st, cur = s.get('from'), s.get('to'), s.get('currency', '').upper()
-        if cur and cur != 'RUR': print(f"{Fore.YELLOW}Currency: {cur}{Style.RESET_ALL}")
-    date = 'Invalid date'
-    if vac.get('published_at'):
+def extract_vacancy_data(vacancy):
+    salary = vacancy.get('salary')
+    area = vacancy.get('area', {})
+    employer = vacancy.get('employer', {})
+    
+    salary_from = salary_to = currency = None
+    if salary:
+        salary_from = salary.get('from')
+        salary_to = salary.get('to')
+        currency = salary.get('currency', '').upper()
+        if currency and currency != 'RUR':
+            print(f"{Fore.YELLOW}Currency: {currency}{Style.RESET_ALL}")
+    
+    city = area.get('name', '') if area else ''
+    employer_name = employer.get('name', '') if employer else ''
+    
+    published_at = vacancy.get('published_at', '')
+    published_date = 'Invalid date'
+    if published_at:
         try:
-            date = datetime.fromisoformat(vac['published_at'].replace('Z','+00:00')).strftime('%d-%m-%Y')
-        except: pass
+            date_obj = datetime.fromisoformat(published_at.replace('Z', '+00:00'))
+            published_date = date_obj.strftime('%d-%m-%Y')
+        except ValueError:
+            pass
+    
+    requirement = (vacancy.get('snippet', {}) or {}).get('requirement', '')
+    
     return {
-        'Title': vac.get('name',''), 'Salary from': sf, 'Salary to': st, 'Currency': cur,
-        'City': a.get('name',''), 'Employer': e.get('name',''),
-        'Date': date, 'Description': (vac.get('snippet',{}) or {}).get('requirement','')
+        'Title': vacancy.get('name', ''),
+        'Salary from': salary_from,
+        'Salary to': salary_to,
+        'Currency': currency,
+        'City': city,
+        'Employer': employer_name,
+        'Date': published_date,
+        'Description': requirement
     }
 
-def save_excel(vacancies, keyword, region=""):
-    df = pd.DataFrame([extract_vacancy_data(v) for v in vacancies])
-    fn = f'vacancies_{keyword}_{region}.xlsx' if region else f'vacancies_{keyword}.xlsx'
-    with pd.ExcelWriter(fn, engine='openpyxl') as writer:
+def save_to_excel(vacancies, keyword, region=""):
+    df = pd.DataFrame([extract_vacancy_data(vac) for vac in vacancies])
+    filename = f'vacancies_{keyword}_{region}.xlsx' if region else f'vacancies_{keyword}.xlsx'
+    
+    with pd.ExcelWriter(filename, engine='openpyxl') as writer:
         df.to_excel(writer, sheet_name='Vacancies', index=False)
-        ws = writer.sheets['Vacancies']
-        for col in ws.columns:
-            max_len = max((len(str(c.value)) for c in col if c.value), default=0)
-            ws.column_dimensions[get_column_letter(col[0].column)].width = min(max_len+2, 50)
-    print(f"{Fore.GREEN}Saved: {fn}{Style.RESET_ALL}")
+        worksheet = writer.sheets['Vacancies']
+        
+        for column in worksheet.columns:
+            max_length = max((len(str(cell.value)) for cell in column if cell.value), default=0)
+            adjusted_width = min(max_length + 2, 50)
+            worksheet.column_dimensions[get_column_letter(column[0].column)].width = adjusted_width
+    
+    print(f"{Fore.GREEN}Saved: {filename}{Style.RESET_ALL}")
 
-def get_top_skills(vacancies, n=10):
-    words = []
-    for v in vacancies:
-        req = (v.get('snippet',{}) or {}).get('requirement','')
-        if req:
-            words.extend([w for w in re.findall(r'\b[а-яa-zё]+\b', req.lower()) if w not in STOP_WORDS])
-    return Counter(words).most_common(n)
+def get_top_skills(vacancies, top_n=10):
+    all_words = []
+    for vac in vacancies:
+        requirement = (vac.get('snippet', {}) or {}).get('requirement', '')
+        if requirement:
+            words = re.findall(r'\b[а-яa-zё]+\b', requirement.lower())
+            all_words.extend([word for word in words if word not in STOP_WORDS])
+    return Counter(all_words).most_common(top_n)
 
-def filter_salary(vacancies, min_salary=0):
-    return [v for v in vacancies if v.get('salary') and v['salary'].get('from',0) is not None and v['salary']['from'] >= min_salary]
+def filter_by_salary(vacancies, min_salary=0):
+    return [
+        vac for vac in vacancies
+        if vac.get('salary') and vac['salary'].get('from', 0) is not None
+        and vac['salary'].get('from', 0) >= min_salary
+    ]
 
-def print_stats(vacancies, name):
-    if not vacancies: return
-    salaries = [v['salary']['from'] for v in vacancies if v.get('salary') and v['salary'].get('from')]
-    avg = sum(salaries)/len(salaries) if salaries else 0
+def print_statistics(vacancies, region_name):
+    if not vacancies:
+        return
+    
+    salaries = [vac['salary']['from'] for vac in vacancies 
+               if vac.get('salary') and vac['salary'].get('from') is not None]
+    
+    avg_salary = sum(salaries) / len(salaries) if salaries else 0
+    
     print(f"\n{Fore.CYAN}{'='*50}{Style.RESET_ALL}")
-    print(f"{Fore.YELLOW}{name}: {len(vacancies)} vacancies, avg salary {int(avg):,} RUB{Style.RESET_ALL}")
-    top = get_top_skills(vacancies, 5)
-    if top:
+    print(f"{Fore.YELLOW}{region_name}: {len(vacancies)} vacancies, avg salary {int(avg_salary):,} RUB{Style.RESET_ALL}")
+    
+    top_skills = get_top_skills(vacancies, 5)
+    if top_skills:
         print(f"{Fore.MAGENTA}Top-5 skills:{Style.RESET_ALL}")
-        for w,c in top: print(f"  {Fore.GREEN}{w}{Style.RESET_ALL}: {c}")
+        for word, count in top_skills:
+            print(f"  {Fore.GREEN}{word}{Style.RESET_ALL}: {count} times")
 
-def compare_regions(m, spb):
+def compare_regions(moscow_vacancies, spb_vacancies):
     print(f"\n{Fore.CYAN}{'='*60}{Style.RESET_ALL}")
-    print(f"{Fore.YELLOW}COMPARISON MOSCOW vs SPB{Style.RESET_ALL}")
+    print(f"{Fore.YELLOW}COMPARISON MOSCOW vs SAINT-PETERSBURG{Style.RESET_ALL}")
     print(f"{Fore.CYAN}{'='*60}{Style.RESET_ALL}")
     
-    def avg(v): 
-        s = [x['salary']['from'] for x in v if x.get('salary') and x['salary'].get('from')]
-        return sum(s)/len(s) if s else 0
+    def calc_avg_salary(vacancies):
+        salaries = [vac['salary']['from'] for vac in vacancies 
+                   if vac.get('salary') and vac['salary'].get('from') is not None]
+        return sum(salaries) / len(salaries) if salaries else 0
     
-    am, aspb = avg(m), avg(spb)
+    avg_moscow = calc_avg_salary(moscow_vacancies)
+    avg_spb = calc_avg_salary(spb_vacancies)
+    
     print(f"{Fore.WHITE}Average salary:{Style.RESET_ALL}")
-    print(f"  {Fore.RED}Moscow: {int(am):,} RUB{Style.RESET_ALL}")
-    print(f"  {Fore.BLUE}SPB: {int(aspb):,} RUB{Style.RESET_ALL}")
-    diff = abs(am-aspb)/max(am,aspb)*100 if max(am,aspb) else 0
-    print(f"  {Fore.GREEN}-> {'Moscow' if am>aspb else 'SPB'} higher by {diff:.1f}%{Style.RESET_ALL}")
+    print(f"  {Fore.RED}Moscow: {int(avg_moscow):,} RUB{Style.RESET_ALL}")
+    print(f"  {Fore.BLUE}SPB: {int(avg_spb):,} RUB{Style.RESET_ALL}")
     
-    ms = set(w for w,_ in get_top_skills(m, 10))
-    ss = set(w for w,_ in get_top_skills(spb, 10))
-    print(f"\n{Fore.WHITE}Common skills: {', '.join(ms & ss) if ms&ss else 'none'}{Style.RESET_ALL}")
-    if ms-ss: print(f"  {Fore.RED}Unique Moscow: {', '.join(ms-ss)}{Style.RESET_ALL}")
-    if ss-ms: print(f"  {Fore.BLUE}Unique SPB: {', '.join(ss-ms)}{Style.RESET_ALL}")
+    if avg_moscow > avg_spb:
+        diff = ((avg_moscow - avg_spb) / avg_spb) * 100 if avg_spb else 0
+        print(f"  {Fore.GREEN}Moscow higher by {diff:.1f}%{Style.RESET_ALL}")
+    elif avg_spb > avg_moscow:
+        diff = ((avg_spb - avg_moscow) / avg_moscow) * 100 if avg_moscow else 0
+        print(f"  {Fore.GREEN}SPB higher by {diff:.1f}%{Style.RESET_ALL}")
+    
+    moscow_skills = set(word for word, _ in get_top_skills(moscow_vacancies, 10))
+    spb_skills = set(word for word, _ in get_top_skills(spb_vacancies, 10))
+    
+    common_skills = moscow_skills & spb_skills
+    moscow_unique = moscow_skills - spb_skills
+    spb_unique = spb_skills - moscow_skills
+    
+    print(f"\n{Fore.WHITE}Skills:{Style.RESET_ALL}")
+    if common_skills:
+        print(f"  {Fore.GREEN}Common: {', '.join(common_skills)}{Style.RESET_ALL}")
+    if moscow_unique:
+        print(f"  {Fore.RED}Unique Moscow: {', '.join(moscow_unique)}{Style.RESET_ALL}")
+    if spb_unique:
+        print(f"  {Fore.BLUE}Unique SPB: {', '.join(spb_unique)}{Style.RESET_ALL}")
 
 def main():
-    if not check_internet(): return
-    print(f"{Fore.CYAN}Vacancy search tool{Style.RESET_ALL}")
-    keyword = input(f"{Fore.YELLOW}Profession: {Style.RESET_ALL}")
-    pages = int(input(f"{Fore.YELLOW}Pages (3): {Style.RESET_ALL}") or 3)
-    min_salary = int(input(f"{Fore.YELLOW}Min salary (50000): {Style.RESET_ALL}") or 50000)
+    if not check_internet():
+        return
     
-    try:
-        print(f"\n{Fore.RED}Moscow...{Style.RESET_ALL}")
-        m = fetch_vacancies(keyword, pages, 1)
-        print(f"{Fore.BLUE}SPB...{Style.RESET_ALL}")
-        s = fetch_vacancies(keyword, pages, 2)
-        
-        mf, sf = filter_salary(m, min_salary), filter_salary(s, min_salary)
-        print(f"\n{Fore.CYAN}After filter: Moscow {len(mf)}, SPB {len(sf)}{Style.RESET_ALL}")
-        
-        if mf: save_excel(mf, keyword, "Moscow")
-        if sf: save_excel(sf, keyword, "SPB")
-        
-        print_stats(mf, "Moscow")
-        print_stats(sf, "SPB")
-        if mf and sf: compare_regions(mf, sf)
-        else: print(f"{Fore.YELLOW}Insufficient data for comparison{Style.RESET_ALL}")
-    except Exception as e:
-        print(f"{Fore.RED}Error: {e}{Style.RESET_ALL}")
+    print(f"{Fore.CYAN}Vacancy Search Tool{Style.RESET_ALL}")
+    
+    keyword = input(f"{Fore.YELLOW}Enter profession: {Style.RESET_ALL}")
+    pages = int(input(f"{Fore.YELLOW}Number of pages (default 3): {Style.RESET_ALL}") or 3)
+    min_salary = int(input(f"{Fore.YELLOW}Minimum salary (default 50000): {Style.RESET_ALL}") or 50000)
+    
+    print(f"\n{Fore.RED}Collecting data for Moscow...{Style.RESET_ALL}")
+    moscow_data = fetch_vacancies(keyword, pages=pages, area_id=1)
+    print(f"{Fore.GREEN}Found {len(moscow_data)} vacancies in Moscow{Style.RESET_ALL}")
+    
+    print(f"\n{Fore.BLUE}Collecting data for Saint-Petersburg...{Style.RESET_ALL}")
+    spb_data = fetch_vacancies(keyword, pages=pages, area_id=2)
+    print(f"{Fore.GREEN}Found {len(spb_data)} vacancies in SPB{Style.RESET_ALL}")
+    
+    moscow_filtered = filter_by_salary(moscow_data, min_salary=min_salary)
+    spb_filtered = filter_by_salary(spb_data, min_salary=min_salary)
+    
+    print(f"\n{Fore.CYAN}After salary filter:{Style.RESET_ALL}")
+    print(f"{Fore.RED}Moscow: {len(moscow_filtered)} vacancies{Style.RESET_ALL}")
+    print(f"{Fore.BLUE}SPB: {len(spb_filtered)} vacancies{Style.RESET_ALL}")
+    
+    if moscow_filtered:
+        save_to_excel(moscow_filtered, keyword, "Moscow")
+    if spb_filtered:
+        save_to_excel(spb_filtered, keyword, "SPB")
+    
+    print_statistics(moscow_filtered, "Moscow")
+    print_statistics(spb_filtered, "Saint-Petersburg")
+    
+    if moscow_filtered and spb_filtered:
+        compare_regions(moscow_filtered, spb_filtered)
+    else:
+        print(f"{Fore.YELLOW}Insufficient data for comparison{Style.RESET_ALL}")
 
 if __name__ == "__main__":
     main()
+```
