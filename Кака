@@ -2,10 +2,10 @@ import tkinter as tk
 from tkinter import messagebox
 from datetime import datetime
 
+
 def determine_coolness():
     time_str = entry_time.get().strip()
-    
-    # Проверяем формат (ЧЧ:ММ)
+
     try:
         hours, minutes = map(int, time_str.split(':'))
         if not (0 <= hours <= 23 and 0 <= minutes <= 59):
@@ -13,29 +13,26 @@ def determine_coolness():
     except ValueError:
         messagebox.showerror("Ошибка", "Введите время в формате ЧЧ:ММ (например, 23:30)")
         return
-    
-    # Переводим в минуты от полуночи
+
     total_minutes = hours * 60 + minutes
-    
-    # Определяем категорию
-    if 0 <= total_minutes < 5 * 60:  # 00:00 - 04:59
-        result = "😴 Не круто (0-5 часов)"
-    elif 5 * 60 <= total_minutes < 9 * 60:  # 05:00 - 08:59
-        result = "😊 Нормально (5-9 часов)"
-    elif 9 * 60 <= total_minutes < 21 * 60:  # 09:00 - 20:59
-        result = "🔥 Круто (9-21 часов)"
-    elif 21 * 60 <= total_minutes <= 24 * 60:  # 21:00 - 23:59
-        result = "⭐ Омега круто (21-24 часа)"
-    
+
+    if 0 <= total_minutes < 5 * 60:
+        result = "/ᐠ ·•᷄ ˕  •᷅マ Не круто (0-5 часов) идите поспите еше для тренеровеки"
+    elif 5 * 60 <= total_minutes < 9 * 60:
+        result = "ฅ≽^•⩊•^≼ฅ Нормально (5-9 часов) вы можетен начать тренеровать простые упржнения "
+    elif 9 * 60 <= total_minutes < 21 * 60:
+        result = "ᓚ₍つ^. .^₎っ♡ Круто (9-21 часов) вам доступны сложные тренеровки"
+    elif 21 * 60 <= total_minutes <= 24 * 60:
+        result = "ദ്ദി/ᐠ - ⩊ -マ.ᐟ Омега круто (21-24 часа) вы бог"
+
     label_result.config(text=f"Результат: {result}")
 
-# Создаём окно
+
 root = tk.Tk()
 root.title("Определитель сна по крутости")
 root.geometry("400x250")
 root.resizable(False, False)
 
-# Виджеты
 label_instruction = tk.Label(root, text="Во сколько лёг спать?", font=("Arial", 12))
 label_instruction.pack(pady=15)
 
@@ -43,12 +40,24 @@ entry_time = tk.Entry(root, font=("Arial", 14), width=10, justify="center")
 entry_time.pack(pady=5)
 entry_time.insert(0, "23:30")
 
-btn_calc = tk.Button(root, text="Определить", font=("Arial", 12), 
+btn_calc = tk.Button(root, text="Определить", font=("Arial", 12),
                      command=determine_coolness, bg="#4CAF50", fg="white")
 btn_calc.pack(pady=15)
 
 label_result = tk.Label(root, text="Результат: ", font=("Arial", 13, "bold"))
 label_result.pack(pady=10)
 
-# Запуск
 root.mainloop()
+
+
+# ▒▒▒▒▒█▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀█
+# ▒▒▒▒▒█░▒▒▒▒▒▒▒▓▒▒▓▒▒▒▒▒▒▒░█
+# ▒▒▒▒▒█░▒▒▓▒▒▒▒▒▒▒▒▒▄▄▒▓▒▒░█░▄▄
+# ▄▀▀▄▄█░▒▒▒▒▒▒▓▒▒▒▒█░░▀▄▄▄▄▄▀░░█
+# █░░░░█░▒▒▒▒▒▒▒▒▒▒▒█░░░░░░░░░░░█
+# ▒▀▀▄▄█░▒▒▒▒▓▒▒▒▓▒█░░░█▒░░░░█▒░░█
+# ▒▒▒▒▒█░▒▓▒▒▒▒▓▒▒▒█░░░░░░░▀░░░░░█
+# ▒▒▒▄▄█░▒▒▒▓▒▒▒▒▒▒▒█░░█▄▄█▄▄█░░█
+# ▒▒▒█░░░█▄▄▄▄▄▄▄▄▄▄█░█▄▄▄▄▄▄▄▄▄█
+# ▒▒▒█▄▄█░░█▄▄█░░░░░░█▄▄█░░█▄▄█
+
