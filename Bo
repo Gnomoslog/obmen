@@ -1,0 +1,137 @@
+import sqlite3
+from datetime import datetime, timedelta
+
+class DB:
+    def __new__(cls, db="library.db"):
+        if not hasattr(cls, '_inst'):
+            cls._inst = super().__new__(cls)
+            cls._inst.conn = sqlite3.connect(db)
+            cls._inst.c = cls._inst.conn.cursor()
+            cls._inst._init()
+        return cls._inst
+
+    def _init(self):
+        self.c.executescript("""
+            PRAGMA foreign_keys=ON;
+            CREATE TABLE IF NOT EXISTS authors (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS books (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL,
+                publisher TEXT, year INTEGER CHECK(year<=strftime('%Y','now')), inventory_number TEXT UNIQUE NOT NULL);
+            CREATE TABLE IF NOT EXISTS book_authors (book_id INTEGER REFERENCES books(id) ON DELETE CASCADE,
+                author_id INTEGER REFERENCES authors(id) ON DELETE CASCADE, PRIMARY KEY(book_id,author_id));
+            CREATE TABLE IF NOT EXISTS readers (id INTEGER PRIMARY KEY AUTOINCREMENT, full_name TEXT NOT NULL,
+                birth_date DATE, phone TEXT UNIQUE, reg_date DATE DEFAULT CURRENT_DATE);
+            CREATE TABLE IF NOT EXISTS lendings (id INTEGER PRIMARY KEY AUTOINCREMENT, book_id INTEGER REFERENCES books(id),
+                reader_id INTEGER REFERENCES readers(id), issue_date DATE NOT NULL, due_date DATE NOT NULL,
+                return_date DATE, CHECK(return_date IS NULL OR return_date>=issue_date));
+            CREATE TABLE IF NOT EXISTS fines (id INTEGER PRIMARY KEY AUTOINCREMENT, lending_id INTEGER REFERENCES lendings(id),
+                amount DECIMAL(10,2), paid BOOLEAN DEFAULT 0);
+        """)
+        self.conn.commit()
+
+    def q(self, sql, p=()):
+        self.c.execute(sql, p)
+        self.conn.commit()
+
+    def f(self, sql, p=()):
+        self.c.execute(sql, p)
+        return self.c.fetchall()
+
+    def f1(self, sql, p=()):
+        self.c.execute(sql, p)
+        return self.c.fetchone()
+
+class Book:
+    def __init__(self, id=None, title='', publisher='', year=None, inv=''):
+        self.id, self.title, self.publisher, self.year, self.inv = id, title, publisher, year, inv
+        self.db = DB()
+
+    def save(self):
+        if self.id:
+            self.db.q("UPDATE books SET title=?,publisher=?,year=?,inventory_number=? WHERE id=?", (self.title,self.publisher,self.year,self.inv,self.id))
+        else:
+            self.db.q("INSERT INTO books(title,publisher,year,inventory_number) VALUES(?,?,?,?)", (self.title,self.publisher,self.year,self.inv))
+            self.id = self.db.c.lastrowid
+
+    def delete(self):
+        if self.id:
+            self.db.q("DELETE FROM books WHERE id=?", (self.id,))
+
+    @staticmethod
+    def by_author(name):
+        return DB().f("SELECT b.* FROM books b JOIN book_authors ba ON b.id=ba.book_id JOIN authors a ON a.id=ba.author_id WHERE a.name LIKE ?", (f"%{name}%",))
+
+    @property
+    def available(self):
+        return not self.id or self.db.f1("SELECT id FROM lendings WHERE book_id=? AND return_date IS NULL", (self.id,)) is None
+
+class Reader:
+    def __init__(self, id=None, name='', birth=None, phone='', reg=None):
+        self.id, self.full_name, self.birth_date, self.phone, self.reg_date = id, name, birth, phone, reg or datetime.now().date()
+        self.db = DB()
+
+    def save(self):
+        if self.id:
+            self.db.q("UPDATE readers SET full_name=?,birth_date=?,phone=? WHERE id=?", (self.full_name,self.birth_date,self.phone,self.id))
+        else:
+            self.db.q("INSERT INTO readers(full_name,birth_date,phone,reg_date) VALUES(?,?,?,?)", (self.full_name,self.birth_date,self.phone,self.reg_date))
+            self.id = self.db.c.lastrowid
+
+    def debts(self):
+        return self.db.f("SELECT b.title,l.due_date FROM lendings l JOIN books b ON l.book_id=b.id WHERE l.reader_id=? AND l.return_date IS NULL AND l.due_date<date('now')", (self.id,))
+
+class Lending:
+    def __init__(self, id=None, book_id=None, reader_id=None, issue=None, due=None, ret=None):
+        self.id, self.book_id, self.reader_id, self.issue_date, self.due_date, self.return_date = id, book_id, reader_id, issue or datetime.now().date(), due or datetime.now().date()+timedelta(days=30), ret
+        self.db = DB()
+
+    def save(self):
+        if self.id:
+            self.db.q("UPDATE lendings SET book_id=?,reader_id=?,issue_date=?,due_date=?,return_date=? WHERE id=?", (self.book_id,self.reader_id,self.issue_date,self.due_date,self.return_date,self.id))
+        else:
+            self.db.q("INSERT INTO lendings(book_id,reader_id,issue_date,due_date) VALUES(?,?,?,?)", (self.book_id,self.reader_id,self.issue_date,self.due_date))
+            self.id = self.db.c.lastrowid
+
+    def close(self, ret_date):
+        self.return_date = ret_date
+        self.save()
+        if self.return_date > self.due_date:
+            self.db.q("INSERT INTO fines(lending_id,amount) VALUES(?,?)", (self.id, (self.return_date-self.due_date).days*10))
+
+def main():
+    db = DB()
+    while True:
+        print("\n1.Все книги\n2.Добавить читателя\n3.Выдать книгу\n4.Принять возврат\n5.Должники\n6.Поиск по автору\n7.Выход")
+        c = input("Выбор: ")
+        if c=='1':
+            for r in db.f("SELECT b.*,l.id FROM books b LEFT JOIN lendings l ON b.id=l.book_id AND l.return_date IS NULL"):
+                print(f"{r[0]}: {r[1]} ({r[2]}, {r[3]}) - {'Выдана' if r[-1] else 'В наличии'}")
+        elif c=='2':
+            n,p = input("ФИО: "), input("Телефон: ")
+            if db.f1("SELECT id FROM readers WHERE phone=?", (p,)): print("Уже существует")
+            else: Reader(name=n, phone=p).save(); print("Добавлен")
+        elif c=='3':
+            t = input("Название: ")
+            br = db.f1("SELECT id FROM books WHERE title LIKE ?", (f"%{t}%",))
+            if not br: print("Не найдена"); continue
+            b = Book(id=br[0])
+            if not b.available: print("Занята"); continue
+            ph = input("Телефон читателя: ")
+            rr = db.f1("SELECT id FROM readers WHERE phone=?", (ph,))
+            if not rr: print("Читатель не найден"); continue
+            if db.f1("SELECT COUNT(*) FROM lendings WHERE reader_id=? AND return_date IS NULL", (rr[0],))[0] >= 3:
+                print("Лимит 3 книги"); continue
+            Lending(book_id=b.id, reader_id=rr[0]).save(); print("Выдана")
+        elif c=='4':
+            inv = input("Инв. номер: ")
+            l = db.f1("SELECT l.id,l.due_date FROM lendings l JOIN books b ON l.book_id=b.id WHERE b.inventory_number=? AND l.return_date IS NULL", (inv,))
+            if not l: print("Не найдена"); continue
+            Lending(id=l[0]).close(datetime.now().date()); print("Принят")
+        elif c=='5':
+            rows = db.f("SELECT DISTINCT r.full_name FROM readers r JOIN lendings l ON r.id=l.reader_id WHERE l.return_date IS NULL AND l.due_date<date('now')")
+            print("Должники:", [r[0] for r in rows] or "Нет")
+        elif c=='6':
+            for b in Book.by_author(input("Автор: ")): print(b)
+        elif c=='7': break
+
+if __name__ == "__main__":
+    main()
