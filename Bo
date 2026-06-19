@@ -2,7 +2,7 @@ import sqlite3
 from datetime import datetime, timedelta
 
 class DB:
-    def __new__(cls, db="library.db"):
+    def __new__(cls, db="library3.db"):
         if not hasattr(cls, '_inst'):
             cls._inst = super().__new__(cls)
             cls._inst.conn = sqlite3.connect(db)
@@ -47,10 +47,10 @@ class Book:
 
     def save(self):
         if self.id:
-            self.db.q("UPDATE books SET title=?,publisher=?,year=?,inventory_number=? WHERE id=?", 
+            self.db.q("UPDATE books SET title=?,publisher=?,year=?,inventory_number=? WHERE id=?",
                      (self.title,self.publisher,self.year,self.inv,self.id))
         else:
-            self.db.q("INSERT INTO books(title,publisher,year,inventory_number) VALUES(?,?,?,?)", 
+            self.db.q("INSERT INTO books(title,publisher,year,inventory_number) VALUES(?,?,?,?)",
                      (self.title,self.publisher,self.year,self.inv))
             self.id = self.db.c.lastrowid
 
@@ -73,10 +73,10 @@ class Reader:
 
     def save(self):
         if self.id:
-            self.db.q("UPDATE readers SET full_name=?,birth_date=?,phone=? WHERE id=?", 
+            self.db.q("UPDATE readers SET full_name=?,birth_date=?,phone=? WHERE id=?",
                      (self.full_name,self.birth_date,self.phone,self.id))
         else:
-            self.db.q("INSERT INTO readers(full_name,birth_date,phone,reg_date) VALUES(?,?,?,?)", 
+            self.db.q("INSERT INTO readers(full_name,birth_date,phone,reg_date) VALUES(?,?,?,?)",
                      (self.full_name,self.birth_date,self.phone,self.reg_date))
             self.id = self.db.c.lastrowid
 
@@ -90,10 +90,10 @@ class Lending:
 
     def save(self):
         if self.id:
-            self.db.q("UPDATE lendings SET book_id=?,reader_id=?,issue_date=?,due_date=?,return_date=? WHERE id=?", 
+            self.db.q("UPDATE lendings SET book_id=?,reader_id=?,issue_date=?,due_date=?,return_date=? WHERE id=?",
                      (self.book_id,self.reader_id,self.issue_date,self.due_date,self.return_date,self.id))
         else:
-            self.db.q("INSERT INTO lendings(book_id,reader_id,issue_date,due_date) VALUES(?,?,?,?)", 
+            self.db.q("INSERT INTO lendings(book_id,reader_id,issue_date,due_date) VALUES(?,?,?,?)",
                      (self.book_id,self.reader_id,self.issue_date,self.due_date))
             self.id = self.db.c.lastrowid
 
@@ -101,7 +101,7 @@ class Lending:
         self.return_date = ret_date
         self.save()
         if self.return_date > self.due_date:
-            self.db.q("INSERT INTO fines(lending_id,amount) VALUES(?,?)", 
+            self.db.q("INSERT INTO fines(lending_id,amount) VALUES(?,?)",
                      (self.id, (self.return_date-self.due_date).days*10))
 
 def main():
@@ -114,24 +114,24 @@ def main():
                 print(f"{r[0]}: {r[1]} ({r[2]}, {r[3]}) - {'Выдана' if r[-1] else 'В наличии'}")
         elif c=='2':
             n,p = input("ФИО: "), input("Телефон: ")
-            if db.f1("SELECT id FROM readers WHERE phone=?", (p,)): 
+            if db.f1("SELECT id FROM readers WHERE phone=?", (p,)):
                 print("Уже существует")
-            else: 
+            else:
                 Reader(name=n, phone=p).save()
                 print("Добавлен")
         elif c=='3':
             t = input("Название: ")
             br = db.f1("SELECT id FROM books WHERE title LIKE ?", (f"%{t}%",))
-            if not br: 
+            if not br:
                 print("Не найдена")
                 continue
             b = Book(id=br[0])
-            if not b.available: 
+            if not b.available:
                 print("Занята")
                 continue
             ph = input("Телефон читателя: ")
             rr = db.f1("SELECT id FROM readers WHERE phone=?", (ph,))
-            if not rr: 
+            if not rr:
                 print("Читатель не найден")
                 continue
             if db.f1("SELECT COUNT(*) FROM lendings WHERE reader_id=? AND return_date IS NULL", (rr[0],))[0] >= 3:
@@ -142,7 +142,7 @@ def main():
         elif c=='4':
             inv = input("Инв. номер: ")
             l = db.f1("SELECT l.id,l.due_date FROM lendings l JOIN books b ON l.book_id=b.id WHERE b.inventory_number=? AND l.return_date IS NULL", (inv,))
-            if not l: 
+            if not l:
                 print("Не найдена")
                 continue
             Lending(id=l[0]).close(datetime.now().date())
@@ -151,9 +151,9 @@ def main():
             rows = db.f("SELECT DISTINCT r.full_name FROM readers r JOIN lendings l ON r.id=l.reader_id WHERE l.return_date IS NULL AND l.due_date<date('now')")
             print("Должники:", [r[0] for r in rows] or "Нет")
         elif c=='6':
-            for b in Book.by_author(input("Автор: ")): 
+            for b in Book.by_author(input("Автор: ")):
                 print(b)
-        elif c=='7': 
+        elif c=='7':
             break
 
 if __name__ == "__main__":
